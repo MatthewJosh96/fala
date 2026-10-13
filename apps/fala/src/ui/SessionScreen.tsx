@@ -65,7 +65,7 @@ export function SessionScreen({
         <h1 className="track-title">{track.title}</h1>
         <p className={`availability ${track.stored ? 'ok' : ''}`} data-testid="availability">
           <span className="dot" aria-hidden="true" />
-          {track.stored ? 'Dostępne offline' : 'Tylko z sieci — pobierz w „Pobrane”'}
+          {track.stored ? 'Dostępne offline' : 'Niepobrane — odtwarzanie z sieci'}
         </p>
       </div>
 

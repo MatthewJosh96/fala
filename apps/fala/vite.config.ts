@@ -43,6 +43,8 @@ export default defineConfig({
       devOptions: { enabled: false },
     }),
   ],
-  preview: { port: 4317, strictPort: true },
+  // Behind `tailscale serve` the Host header is <machine>.<tailnet>.ts.net; Vite rejects
+  // unknown hosts by default (DNS-rebinding protection), so allow only that suffix.
+  preview: { port: 4317, strictPort: true, allowedHosts: ['.ts.net'] },
   server: { port: 4318, strictPort: true },
 });

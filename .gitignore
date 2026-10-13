@@ -6,3 +6,6 @@ dist/
 *.log
 docs/design/gen/status.txt
 .venv/
+
+# Large generated media and overnight recordings (never in Git)
+renders/

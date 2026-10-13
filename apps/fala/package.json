@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit -p tsconfig.json && vite build",
-    "preview": "vite preview --host",
+    "preview": "vite preview",
     "test": "vitest run",
     "test:e2e": "playwright test",
     "icons": "sh scripts/make-icons.sh"
