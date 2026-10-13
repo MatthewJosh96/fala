@@ -116,12 +116,16 @@ export function App({ player }: { player: Player }) {
 
   const onDownload = async (t: CatalogueTrack) => {
     setOp(t.url, { kind: 'downloading', pct: 0, bytes: 0 });
+    // A locked screen suspends the page and breaks a 460 MB transfer; keep it on while downloading.
+    const wake = await navigator.wakeLock?.request('screen').catch(() => null);
     try {
       await downloadTrack(t, { caches: browserCaches(), onProgress: progressOp(t.url) });
       setOp(t.url, null);
       if (navigator.storage?.persist) await navigator.storage.persist();
     } catch (e) {
       setOp(t.url, { kind: 'error', message: e instanceof Error ? e.message : String(e) });
+    } finally {
+      await wake?.release().catch(() => undefined);
     }
     await refresh();
   };
