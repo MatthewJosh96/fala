@@ -19,11 +19,9 @@ ENV_BAND = (500.0, 8_000.0)
 # applied AM at depth >= 0.25 measured >= 36 dB.
 PROMINENCE_MIN_DB = 20.0
 
-
 def _mono(x: np.ndarray) -> np.ndarray:
     x = np.asarray(x, dtype=np.float64)
     return x.mean(axis=1) if x.ndim == 2 else x
-
 
 def envelope(x: np.ndarray, sr: int) -> np.ndarray:
     """Amplitude envelope (Hilbert magnitude) resampled to ENV_RATE."""
@@ -34,7 +32,6 @@ def envelope(x: np.ndarray, sr: int) -> np.ndarray:
     up, down = ENV_RATE, sr
     g = np.gcd(up, down)
     return signal.resample_poly(env, up // g, down // g)
-
 
 def amplitude_modulation(x: np.ndarray, sr: int, band=(0.5, 60.0)) -> dict:
     """Dominant envelope modulation: rate, depth and how far it stands out.
@@ -74,7 +71,6 @@ def amplitude_modulation(x: np.ndarray, sr: int, band=(0.5, 60.0)) -> dict:
         "peak_prominence_db": float(20 * np.log10(prominence.max())),
     }
 
-
 def spectral_slope(x: np.ndarray, sr: int, band=(50.0, 10_000.0)) -> dict:
     """Least-squares slope of the power spectrum in dB per octave (white 0, pink -3, brown -6)."""
     f, pxx = signal.welch(_mono(x), sr, nperseg=1 << 14)
@@ -84,7 +80,6 @@ def spectral_slope(x: np.ndarray, sr: int, band=(50.0, 10_000.0)) -> dict:
     db = np.interp(np.log2(grid), np.log2(f[sel]), 10 * np.log10(pxx[sel]))
     slope = np.polyfit(np.log2(grid), db, 1)[0]
     return {"db_per_octave": float(slope)}
-
 
 def _dominant_tone(ch: np.ndarray, sr: int, band) -> float:
     win = ch * signal.windows.hann(len(ch))
@@ -96,7 +91,6 @@ def _dominant_tone(ch: np.ndarray, sr: int, band) -> float:
     shift = 0.5 * (a - c) / (a - 2 * b + c) if (a - 2 * b + c) else 0.0
     return float(freqs[k] + shift * (freqs[1] - freqs[0]))
 
-
 def binaural(x: np.ndarray, sr: int, carrier_band=(40.0, 1500.0)) -> dict:
     """Carrier frequency per channel and the resulting binaural beat."""
     x = np.asarray(x, dtype=np.float64)
@@ -105,7 +99,6 @@ def binaural(x: np.ndarray, sr: int, carrier_band=(40.0, 1500.0)) -> dict:
     left = _dominant_tone(x[:, 0], sr, carrier_band)
     right = _dominant_tone(x[:, 1], sr, carrier_band)
     return {"left_hz": left, "right_hz": right, "beat_hz": abs(right - left)}
-
 
 def levels(x: np.ndarray, sr: int) -> dict:
     """Integrated loudness (BS.1770), sample peak, 4x-oversampled true peak, clipping."""
@@ -121,7 +114,6 @@ def levels(x: np.ndarray, sr: int) -> dict:
         "true_peak_dbtp": float(20 * np.log10(max(true_peak, 1e-12))),
         "clipped_samples": int(np.count_nonzero(np.abs(x) >= 0.999)),
     }
-
 
 def clicks(x: np.ndarray, sr: int, threshold: float = 12.0, min_jump: float = 1e-4) -> dict:
     """Isolated discontinuities: samples whose high-passed second difference is an
@@ -149,7 +141,6 @@ def clicks(x: np.ndarray, sr: int, threshold: float = 12.0, min_jump: float = 1e
             events.append(h)
     return {"count": len(events), "times_s": [float((h + 1) / sr) for h in events]}
 
-
 def loop_seam(x: np.ndarray, sr: int, context_s: float = 0.05) -> dict:
     """Does playing the file in a loop produce a click at the wrap point?"""
     mono = _mono(x)
@@ -158,3 +149,83 @@ def loop_seam(x: np.ndarray, sr: int, context_s: float = 0.05) -> dict:
     jump = abs(mono[0] - mono[-1])
     typical = float(np.median(np.abs(np.diff(joined)))) or 1e-12
     return {"jump": float(jump), "click": bool(jump > 6 * typical + 1e-4)}
+
+# Applied depth below this is reported as "no detected modulation".
+APPLIED_DEPTH_MIN = 0.02
+
+def _as_columns(a: np.ndarray) -> np.ndarray:
+    a = np.asarray(a, dtype=np.float64)
+    return a[:, None] if a.ndim == 1 else a
+
+def applied_am_depth(
+    y: np.ndarray,
+    x: np.ndarray,
+    sr: int,
+    expected_hz: float,
+    extra_layers=(),
+    search_hz: float = 0.1,
+) -> dict:
+    """Depth of the gain modulation applied to a known music bus, read from the mix.
+
+    Model per channel (all channels stacked, Hann-weighted least squares):
+        y = a*x + b*x*cos(2 pi f t) + d*x*sin(2 pi f t) + sum_j q_j*z_j + e
+    With g(t) = (1 + m cos(2 pi f t + phi)) / (1 + m) this gives m = hypot(b, d) / a.
+    The music's own envelope sits inside all three x-regressors, so natural
+    fluctuation at f is not mistaken for applied modulation. f is profiled over
+    expected_hz +- search_hz; a minimum on the search boundary is flagged, not accepted.
+    """
+    y = _as_columns(y)
+    x = _as_columns(x)
+    layers = [_as_columns(z) for z in extra_layers]
+    n, ch = y.shape
+    t = np.arange(n) / sr
+    w = signal.windows.hann(n)
+    wy = y * w[:, None]
+    total = float(np.sum(wy * y))
+
+    const = [x] + layers
+
+    def fit(f):
+        c = np.cos(2 * np.pi * f * t)[:, None]
+        s = np.sin(2 * np.pi * f * t)[:, None]
+        cols = [x, x * c, x * s] + layers
+        k = len(cols)
+        gram = np.empty((k, k))
+        rhs = np.empty(k)
+        for i in range(k):
+            wi = cols[i] * w[:, None]
+            rhs[i] = np.sum(wi * y)
+            for j in range(i, k):
+                gram[i, j] = gram[j, i] = np.sum(wi * cols[j])
+        scale = np.sqrt(np.maximum(np.diag(gram), 1e-300))
+        g = gram / np.outer(scale, scale)
+        coef = np.linalg.solve(g, rhs / scale) / scale
+        rss = total - 2 * coef @ rhs + coef @ gram @ coef
+        return coef, max(rss, 0.0), float(np.linalg.cond(g))
+
+    step = min(1 / (4 * n / sr), search_hz / 10)
+    grid = np.arange(expected_hz - search_hz, expected_hz + search_hz + step / 2, step)
+    results = [fit(f) for f in grid]
+    rss = np.array([r[1] for r in results])
+    best = int(np.argmin(rss))
+    at_boundary = best in (0, len(grid) - 1)
+    f_best = grid[best]
+    if not at_boundary:
+        r0, r1, r2 = rss[best - 1], rss[best], rss[best + 1]
+        denom = r0 - 2 * r1 + r2
+        if denom > 0:
+            f_best = grid[best] + 0.5 * (r0 - r2) / denom * step
+    coef, res, cond = fit(f_best)
+    a, b, d = coef[:3]
+    depth = float(np.hypot(b, d) / a) if a > 0 else float("nan")
+    detected = bool(depth >= APPLIED_DEPTH_MIN and not at_boundary)
+    return {
+        "detected": detected,
+        "rate_hz": float(f_best) if detected else None,
+        "depth": depth,
+        "phase_rad": float(np.arctan2(-d, b)) if detected else None,
+        "gain": float(a * (1 + depth)) if a > 0 else float("nan"),
+        "normalized_residual": float(res / total) if total > 0 else float("nan"),
+        "condition": cond,
+        "rate_at_search_boundary": bool(at_boundary),
+    }
