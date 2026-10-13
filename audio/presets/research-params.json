@@ -1,0 +1,691 @@
+{
+  "schema": "fala-audio-params/1",
+  "generated": "2026-10-13",
+  "source_report": "data/audio-stimulation-focus-sleep/result.md",
+  "status": "author draft after critic and verifier-fix rounds, pending re-verification",
+  "confidence_legend": {
+    "H": "consistent systematic reviews or an official standard",
+    "M": "meta-analysis with limitations or several concordant studies",
+    "L": "single/small studies, conflicting results, or design inference without direct evidence"
+  },
+  "kind_legend": {
+    "evidence": "value taken from the cited study or guideline",
+    "design_inference": "engineering default chosen by the report author; not a study result"
+  },
+  "global": {
+    "parameters": [
+      {
+        "name": "weekly_dose_adult",
+        "value": 1.6,
+        "unit": "Pa2h per 7 days",
+        "equivalent": "80 dBA for 40 h/week",
+        "confidence": "H",
+        "kind": "evidence",
+        "citations": [
+          "T:doc-4ce22edf98230c109caa7cd4"
+        ],
+        "notes": "WHO-ITU H.870 Mode 1; implement as running weekly dose meter with warnings."
+      },
+      {
+        "name": "weekly_dose_sensitive",
+        "value": 0.51,
+        "unit": "Pa2h per 7 days",
+        "equivalent": "75 dBA for 40 h/week",
+        "confidence": "H",
+        "kind": "evidence",
+        "citations": [
+          "T:doc-4ce22edf98230c109caa7cd4"
+        ],
+        "notes": "WHO-ITU H.870 Mode 2; offer as user-selectable safer mode."
+      },
+      {
+        "name": "equal_energy_rule",
+        "value": "100 dB for 16 min = 80 dB for 40 h",
+        "unit": "dose equivalence",
+        "confidence": "H",
+        "kind": "evidence",
+        "citations": [
+          "T:doc-4ce22edf98230c109caa7cd4"
+        ],
+        "notes": "Example given in the WHO-ITU standard is 100 dB for 16 min; own calculation from the 1.6 Pa2h definition gives about 24 min at 100 dB (p=2 Pa, p2=4 Pa2, 1.6/4=0.4 h). Use the dose definition, not the worked example. Each +3 dB halves allowed time (equal-energy principle; derived, not quoted)."
+      },
+      {
+        "name": "leisure_noise_yearly_average",
+        "value": 70,
+        "unit": "dB LAeq,24h",
+        "confidence": "M",
+        "kind": "evidence",
+        "citations": [
+          "T:doc-e000ecfa1317aee73836c70e"
+        ],
+        "notes": "Conditional WHO Europe 2018 recommendation for all leisure sources combined."
+      },
+      {
+        "name": "loudness_calibration",
+        "value": "per-device output calibration or conservative default",
+        "unit": null,
+        "confidence": "L",
+        "kind": "design_inference",
+        "citations": [],
+        "notes": "Gap: no study found gives target levels in LUFS or headphone norms for focus/relax/sleep; studies report dB SPL at the ear. In-app levels are an engineering decision; safety is bounded by the WHO-ITU weekly dose in dB SPL, which needs per-device output calibration."
+      },
+      {
+        "name": "epilepsy_screen",
+        "value": "warning + opt-out for rhythmic/gamma stimulation if seizure history",
+        "unit": null,
+        "confidence": "L",
+        "kind": "design_inference",
+        "citations": [
+          "PMID:38515445",
+          "PMID:36454969"
+        ],
+        "notes": "40 Hz trials excluded seizure history; no human data on seizures triggered by binaural beats or AM music found (gap, not proof of safety)."
+      },
+      {
+        "name": "tinnitus_monitoring",
+        "value": "ask about tinnitus after gamma/40 Hz sessions",
+        "unit": null,
+        "confidence": "L",
+        "kind": "design_inference",
+        "citations": [
+          "PMID:41381439"
+        ],
+        "notes": "Meta-analysis in AD/MCI: tinnitus RR 6.46 (p=0.08), RD 0.16 (p=0.01)."
+      }
+    ]
+  },
+  "modes": {
+    "focus": {
+      "summary": "Instrumental music by default, moderate level; optional ADHD profile with 16 Hz AM music or white/pink noise. No efficacy claims for binaural beats or 40 Hz.",
+      "parameters": [
+        {
+          "name": "vocals",
+          "value": "none (instrumental)",
+          "unit": null,
+          "confidence": "M",
+          "kind": "evidence",
+          "citations": [
+            "PMID:37152835",
+            "PMID:22523045",
+            "DOI:10.1177/20592043221134392"
+          ],
+          "notes": "Lyrics impaired verbal/visual memory and reading (d about -0.3, PMID:37152835); in an RCT with 102 people lyrics worsened an attention/concentration test (PMID:22523045); instrumental lo-fi neutral."
+        },
+        {
+          "name": "tempo_loudness_combo",
+          "value": "avoid fast AND loud simultaneously",
+          "unit": null,
+          "confidence": "L",
+          "kind": "evidence",
+          "citations": [
+            "DOI:10.1177/0305735611400173"
+          ],
+          "notes": "Reading comprehension fell below silence only in fast/high-intensity condition."
+        },
+        {
+          "name": "base_music_tempo",
+          "value": 120,
+          "unit": "BPM",
+          "confidence": "L",
+          "kind": "evidence",
+          "citations": [
+            "PMID:39443657"
+          ],
+          "notes": "Tempo of music used in the AM study; not tested as an independent factor. Faster tempo raises arousal (DOI:10.1525/mp.2002.20.2.151)."
+        },
+        {
+          "name": "am_rate",
+          "value": 16,
+          "unit": "Hz",
+          "range": [
+            14,
+            25
+          ],
+          "confidence": "L",
+          "kind": "evidence",
+          "citations": [
+            "PMID:39443657",
+            "PMID:41974870",
+            "T:doc-ca024f7c2da70739f89766e3"
+          ],
+          "notes": "Only 16 Hz (beta) vs 8 and 32 Hz tested; benefit only for higher ASRS scores, interaction p=0.048, eta_p2=0.048; company-affiliated authors (PMID:41974870). Range = beta band as defined by the authors; only 16 Hz tested. Experiment 1 analysed 83/160 participants (52% passed screening); volume self-set online and used as covariate. Brain.fm-sponsored RCT NCT05291832 (n=329, completed 2022-07-19) has no posted results. Background music did not change ANT reaction times in children with ADHD (PMID:39024557)."
+        },
+        {
+          "name": "am_alignment",
+          "value": "phase-locked to metrical grid (16 Hz = 32nd notes at 120 BPM)",
+          "unit": null,
+          "confidence": "L",
+          "kind": "evidence",
+          "citations": [
+            "PMID:39443657"
+          ],
+          "notes": "Keeps modulation musically coherent."
+        },
+        {
+          "name": "am_spectral_band",
+          "value": "low-mid frequencies; little modulation in highs",
+          "unit": null,
+          "confidence": "L",
+          "kind": "evidence",
+          "citations": [
+            "PMID:39443657"
+          ],
+          "notes": "Broadband modulation interacted badly with sparse high-frequency events (aesthetic choice in the study)."
+        },
+        {
+          "name": "am_depth",
+          "value": "subtle, user-adjustable; start low and ramp",
+          "unit": "% (not reported numerically)",
+          "default": 0.2,
+          "range": [
+            0.1,
+            0.4
+          ],
+          "confidence": "L",
+          "kind": "design_inference",
+          "citations": [
+            "PMID:39443657",
+            "PMID:41154316"
+          ],
+          "notes": "Depth manipulation had no significant effect; deep modulation degrades aesthetics/distracts. Gradual depth increase was used for acclimatisation in a 40 Hz AM study. Default/range are author defaults, not study values."
+        },
+        {
+          "name": "am_target_population",
+          "value": "opt-in for ADHD/inattention profile",
+          "unit": null,
+          "confidence": "L",
+          "kind": "design_inference",
+          "citations": [
+            "PMID:39443657"
+          ],
+          "notes": "Effect covaried with self-reported ADHD symptoms; no independent replication."
+        },
+        {
+          "name": "noise_for_adhd",
+          "value": "white or pink noise, opt-in",
+          "unit": null,
+          "confidence": "M (children and college-age students, laboratory tasks); L for older adults (extrapolation)",
+          "kind": "evidence",
+          "citations": [
+            "PMID:38428577"
+          ],
+          "notes": "g=0.249 in children/students with ADHD or high symptoms (laboratory tasks); g=-0.212 without ADHD; no brown-noise studies; adults beyond college age not included. Inattentive profile may benefit, hyperactive-impulsive may worsen (PMID:39583636)."
+        },
+        {
+          "name": "noise_level_reference_adhd",
+          "value": "80 dB (allowed down to 70 dB) in children",
+          "unit": "dB",
+          "confidence": "L",
+          "kind": "evidence",
+          "citations": [
+            "PMID:38144987"
+          ],
+          "notes": "Lab study in children; do not copy as app default."
+        },
+        {
+          "name": "noise_level_default",
+          "value": 50,
+          "unit": "dBA at ear",
+          "range": [
+            45,
+            60
+          ],
+          "confidence": "L",
+          "kind": "design_inference",
+          "citations": [
+            "PMID:36028546",
+            "T:doc-4ce22edf98230c109caa7cd4"
+          ],
+          "notes": "45 dB white noise improved sustained attention vs office ambient; 65 dB raised stress. Range is author default within WHO weekly dose."
+        },
+        {
+          "name": "noise_color",
+          "value": "no evidence-based preference (white/pink/brown)",
+          "unit": null,
+          "confidence": "L",
+          "kind": "evidence",
+          "citations": [
+            "PMID:41110471"
+          ],
+          "notes": "No pupil-linked arousal difference; offer as user preference only."
+        },
+        {
+          "name": "binaural_beats",
+          "value": "not a focus feature; optional texture only",
+          "unit": null,
+          "confidence": "L",
+          "kind": "evidence",
+          "citations": [
+            "PMID:37205669",
+            "DOI:10.31234/osf.io/jgwpy_v1",
+            "PMID:33978805",
+            "PMID:20117669"
+          ],
+          "notes": "Inconsistent EEG entrainment; large home study showed slight decline at 15/20 Hz; 16 Hz no consistent sustained-attention benefit. Pilot RCT in 20 children/adolescents with ADHD: no group differences on TOVA or Color Trails; double-blind replication showed no theta increase (PMID:12722933)."
+        },
+        {
+          "name": "binaural_carrier_if_used",
+          "value": "low carrier",
+          "unit": "Hz",
+          "range": [
+            250,
+            400
+          ],
+          "confidence": "L",
+          "kind": "evidence",
+          "citations": [
+            "PMID:39910150",
+            "PMID:15721080",
+            "PMID:20123120"
+          ],
+          "notes": "Studies used 340-400 Hz; binaural 40 Hz ASSR undetectable above 3 kHz; responses larger at 250 than 1000 Hz."
+        },
+        {
+          "name": "rhythmic_modulation_type",
+          "value": "if rhythmic modulation is used, prefer acoustic (monaural/isochronic/AM) over binaural",
+          "unit": null,
+          "confidence": "L",
+          "kind": "evidence",
+          "citations": [
+            "PMID:15721080",
+            "PMID:39004412",
+            "PMID:32395188",
+            "PMID:34245340"
+          ],
+          "notes": "Acoustic beats give larger ASSR than binaural (binaural 40 Hz ASSR vanishes above 3 kHz carriers); isochronic-inspired stimulus raised EEG gamma power more than gamma BB in a 4-min study (n=28). Behavioural BB vs MB results are inconsistent: no difference in one study (n=24), fewer errors with BB but more with MB vs pink noise in another (n=25). No behavioural evidence that either improves focus."
+        },
+        {
+          "name": "gamma_40hz",
+          "value": "do not market for focus",
+          "unit": null,
+          "confidence": "L",
+          "kind": "evidence",
+          "citations": [
+            "PMID:37806563",
+            "PMID:39014532",
+            "PMID:37359672"
+          ],
+          "notes": "Mixed/null cognitive results in healthy adults. Two studies by the same first author disagree (no memory effect vs WM improvement). Gamma responses are individual (30-60 Hz) and relate to processing speed rather than inhibitory control (PMID:36675687)."
+        },
+        {
+          "name": "break_music",
+          "value": "positive-valence (preferably slow) music during breaks",
+          "unit": null,
+          "confidence": "L",
+          "kind": "evidence",
+          "citations": [
+            "PMID:29145395"
+          ],
+          "notes": "Reduced misses after SART break (n=89)."
+        },
+        {
+          "name": "session_timing",
+          "value": "start audio before the task; effects of AM were strongest early in session",
+          "unit": null,
+          "confidence": "L",
+          "kind": "evidence",
+          "citations": [
+            "PMID:30073406",
+            "PMID:39443657"
+          ],
+          "notes": "BB meta-regression: exposure before task and longer exposure better; AM music benefit only when experienced early."
+        }
+      ]
+    },
+    "relax": {
+      "summary": "Listener-preferred slow music, optional breathing pacer at about 6/min that adapts from the user's current rate; sessions up to about 30 min.",
+      "parameters": [
+        {
+          "name": "music_selection",
+          "value": "listener-selected or preference-matched",
+          "unit": null,
+          "confidence": "M",
+          "kind": "evidence",
+          "citations": [
+            "PMID:41822413",
+            "PMID:15327345"
+          ],
+          "notes": "Participant-selected music improved HRV more than standardized music; preference moderates stress reduction in a meta-analysis of music alone or with music-assisted relaxation (d=0.67, 22 studies)."
+        },
+        {
+          "name": "expected_effect_stress",
+          "value": "d=0.38 physiological, d=0.545 psychological, heart rate d=0.456",
+          "unit": "Cohen d",
+          "confidence": "M",
+          "kind": "evidence",
+          "citations": [
+            "PMID:31167611"
+          ],
+          "notes": "104 RCTs."
+        },
+        {
+          "name": "session_length",
+          "value": 30,
+          "unit": "min (max)",
+          "range": [
+            10,
+            30
+          ],
+          "confidence": "L",
+          "kind": "evidence",
+          "citations": [
+            "PMID:41822413"
+          ],
+          "notes": "Short interventions (<=30 min) particularly effective for HFnu; lower bound is author default."
+        },
+        {
+          "name": "tempo",
+          "value": "slow; include pauses",
+          "unit": "BPM",
+          "range": [
+            60,
+            80
+          ],
+          "confidence": "L",
+          "kind": "evidence",
+          "citations": [
+            "PMID:16199412",
+            "PMID:41425167"
+          ],
+          "notes": "Faster tempo raises HR/ventilation, pause lowers them; 60-80 BPM range comes from a narrative review on sleep music."
+        },
+        {
+          "name": "breathing_pacer_rate",
+          "value": 6,
+          "unit": "breaths/min",
+          "range": [
+            5.5,
+            7
+          ],
+          "confidence": "M",
+          "kind": "evidence",
+          "citations": [
+            "PMID:35573368",
+            "PMID:35623448",
+            "PMID:30245619"
+          ],
+          "notes": "0.1 Hz raises LF-HRV; slow breathing (<10/min) raises vagal HRV; no robust effect on stress reactivity. Range is author default around 6/min."
+        },
+        {
+          "name": "breathing_pacer_adaptation",
+          "value": "start at user's measured rate, step down gradually",
+          "unit": null,
+          "confidence": "L",
+          "kind": "design_inference",
+          "citations": [
+            "PMID:33658964"
+          ],
+          "notes": "With a fixed 6/min pacer participants averaged about 12/min."
+        },
+        {
+          "name": "breathing_cue_mapping",
+          "value": "map inhale/exhale to gentle swell/fade of a pad or noise layer",
+          "unit": null,
+          "confidence": "L",
+          "kind": "design_inference",
+          "citations": [],
+          "notes": "No study found comparing audio pacer designs; pure design choice."
+        },
+        {
+          "name": "monaural_beats_example",
+          "value": {
+            "beat_hz": 1.067,
+            "tempo_bpm": 64,
+            "carriers_hz": [
+              219.465,
+              220.535
+            ],
+            "depth": 1.0,
+            "mix_level_dbfs": -34.7
+          },
+          "unit": "mixed",
+          "confidence": "L",
+          "kind": "evidence",
+          "citations": [
+            "PMID:40606876"
+          ],
+          "notes": "Beats+music reduced anxiety (d=-0.58) but no music-only arm; authors employed by Universal Music Group. Effect cannot be attributed to beats."
+        },
+        {
+          "name": "binaural_for_anxiety",
+          "value": "no claim; heterogeneous clinical evidence",
+          "unit": null,
+          "confidence": "L",
+          "kind": "evidence",
+          "citations": [
+            "PMID:41176178"
+          ],
+          "notes": "Perioperative SMD -1.38 vs blank (I2 91.6%), -1.01 vs non-BB audio (I2 95.4%)."
+        },
+        {
+          "name": "white_noise_option",
+          "value": "allowed as relaxation background",
+          "unit": null,
+          "confidence": "L",
+          "kind": "evidence",
+          "citations": [
+            "PMID:41176181"
+          ],
+          "notes": "Highest HRV among tested 3-min fragments (n=242)."
+        },
+        {
+          "name": "bass_emphasis",
+          "value": "no boost by default",
+          "unit": null,
+          "confidence": "L",
+          "kind": "evidence",
+          "citations": [
+            "PMID:27660396",
+            "PMID:35742075",
+            "PMID:11833738",
+            "PMID:23338951"
+          ],
+          "notes": "No evidence bass relaxes; high-frequency amplified music gave better HFnu recovery in 12 women; 40 Hz vibroacoustic not different from placebo. Low-frequency-dominant noise at 40 dBA was rated more annoying and attenuated cortisol decline in noise-sensitive people; LFN at 50/70 dBA increased test speed vs silence (arousal), i.e. bass-heavy sound may be arousing rather than relaxing."
+        }
+      ]
+    },
+    "sleep": {
+      "summary": "Pre-sleep music 25-60 min with fade-out; masking noise only on demand and quiet; no slow-wave stimulation and no binaural sleep claims.",
+      "parameters": [
+        {
+          "name": "presleep_music_duration",
+          "value": "25-60",
+          "unit": "min",
+          "default": 45,
+          "confidence": "M",
+          "kind": "evidence",
+          "citations": [
+            "PMID:36000763"
+          ],
+          "notes": "Cochrane (adults with insomnia symptoms): PSQI MD -2.79 from 10 studies/708 participants (moderate certainty); objective sleep measures may not improve (3 studies, 136 participants). Default 45 is author choice."
+        },
+        {
+          "name": "music_features",
+          "value": "slower, softer, instrumental, acoustic; allow personal choice",
+          "unit": null,
+          "confidence": "L",
+          "kind": "evidence",
+          "citations": [
+            "PMID:36652415"
+          ],
+          "notes": "Descriptive analysis of sleep playlists (loudness d=-1.25, tempo d=-0.47 vs general music); large individual variation."
+        },
+        {
+          "name": "music_tempo",
+          "value": "60-80 (starting point, not a threshold)",
+          "unit": "BPM",
+          "confidence": "L",
+          "kind": "evidence",
+          "citations": [
+            "PMID:41425167",
+            "PMID:36652415"
+          ],
+          "notes": "Narrative review only; no study found that tests this tempo range directly. Sleep playlists also contain faster, louder, more energetic tracks."
+        },
+        {
+          "name": "music_personalisation",
+          "value": "rank sleep tracks by user ratings (comfort, liking, calm) rather than fixed acoustic rules",
+          "unit": null,
+          "confidence": "L",
+          "kind": "design_inference",
+          "citations": [
+            "PMID:40839613",
+            "PMID:36652415"
+          ],
+          "notes": "Subjective ratings predicted perceived sleep-inducing quality better than musical features; large individual variation in sleep music."
+        },
+        {
+          "name": "fade_out_timer",
+          "value": "default fade-out after sleep onset window",
+          "unit": "min",
+          "default": 45,
+          "range": [
+            30,
+            60
+          ],
+          "confidence": "L",
+          "kind": "design_inference",
+          "citations": [
+            "T:doc-4841ca522731936fe3125fe3",
+            "PMID:41627391"
+          ],
+          "notes": "Design inference. WHO considers mitigating environmental noise in the first part of the night helpful for falling asleep ('is believed'), which is not direct evidence about played sound. All-night pink noise 50 dBA reduced REM by 18.6 min. Timer values are author defaults."
+        },
+        {
+          "name": "continuous_noise_target_level",
+          "value": 30,
+          "unit": "dBA (bedroom, LAeq)",
+          "confidence": "M",
+          "kind": "evidence",
+          "citations": [
+            "T:doc-4841ca522731936fe3125fe3",
+            "PMID:30178067"
+          ],
+          "notes": "WHO 1999 statement quoted in NNG 2009: continuous noise should not exceed 30 dBA indoors. A narrative otolaryngology review hypothesises maladaptive central auditory plasticity from chronic unstructured white noise even at non-traumatic levels (hypothesis, not RCT evidence)."
+        },
+        {
+          "name": "masking_noise_max_level",
+          "value": 45,
+          "unit": "dBA",
+          "confidence": "L",
+          "kind": "design_inference",
+          "citations": [
+            "PMID:41513961",
+            "PMID:29312136",
+            "PMID:41627391",
+            "PMID:24590753",
+            "PMID:33992973"
+          ],
+          "notes": "All-night masking OFF by default; offer only as opt-in with a warning. In an RCT, pink noise added to intermittent environmental noise worsened sleep architecture and earplugs were more effective (PMID:41627391); in a 12-person pilot 45 dB pink noise attenuated noise-induced fragmentation (PMID:41513961); 46 dB broadband sound shortened sleep latency (PMID:29312136). Cap is author choice. Consumer infant sleep machines can exceed 85 dBA at maximum volume; enforce a hard output cap.",
+          "default_enabled": false
+        },
+        {
+          "name": "noise_color_sleep",
+          "value": "pink or white by preference; no brown-specific evidence",
+          "unit": null,
+          "confidence": "L",
+          "kind": "evidence",
+          "citations": [
+            "PMID:34964434",
+            "PMID:41110471"
+          ],
+          "notes": "Pink-noise studies positive more often (9/11) but low quality; no arousal difference between colors."
+        },
+        {
+          "name": "binaural_or_monaural_sleep",
+          "value": "no efficacy claim",
+          "unit": null,
+          "confidence": "L",
+          "kind": "evidence",
+          "citations": [
+            "PMID:37084374",
+            "PMID:31433343",
+            "PMID:39478090",
+            "PMID:38629490",
+            "PMID:30319382",
+            "PMID:42501690"
+          ],
+          "notes": "No sleep-latency difference BB vs MB vs sham at home (n=221); theta BB added nothing to music; 0.25 Hz shortened N2/N3 latency in naps (n=12). Positive sleep findings come from small studies (n=10-24) with silent/no-sound control, so a beat-specific effect cannot be separated from sound per se."
+        },
+        {
+          "name": "slow_wave_stimulation",
+          "value": "disabled (requires at least real-time sleep-stage detection by EEG; phase-locking gives the strongest effect)",
+          "unit": null,
+          "confidence": "L-M for evidence; L for the design decision",
+          "kind": "evidence",
+          "citations": [
+            "PMID:23583623",
+            "PMID:42491684",
+            "PMID:33406249",
+            "PMID:41426467",
+            "PMID:34182134",
+            "PMID:30184187"
+          ],
+          "notes": "In-phase stimulation effective, out-of-phase ineffective; non-phase-locked rhythmic bursts raised delta power only when delivered during EEG-detected slow-wave sleep; random stimulation reduced SWS and memory; memory effect small (g=0.25, p=0.07); effect sizes decline over years, about 34% not blind, memory test-retest reliability near zero; enhanced slow oscillations without memory benefit in a 12-person study."
+        },
+        {
+          "name": "slow_wave_params_reference_only",
+          "value": {
+            "burst": "50 ms pink noise",
+            "target_phase_deg": 45,
+            "level_db": "30-52",
+            "pattern": "5 pulses on, pause off"
+          },
+          "unit": "mixed",
+          "confidence": "M",
+          "kind": "evidence",
+          "citations": [
+            "PMID:35603302",
+            "PMID:28337134"
+          ],
+          "notes": "Only for a future EEG-headband integration; not for audio-only mode."
+        }
+      ]
+    }
+  },
+  "do_not_claim": [
+    {
+      "claim": "432 Hz tuning is healthier/relaxing",
+      "citations": [
+        "PMID:31031095",
+        "PMID:35545982",
+        "PMID:39844155",
+        "PMID:27430941"
+      ],
+      "notes": "Several small studies (pilots and RCTs up to about 100 people, three by one group) with inconsistent results, partly without a 440 Hz comparison; a 100-patient dental RCT compared music vs no music only."
+    },
+    {
+      "claim": "528 Hz / solfeggio frequencies heal",
+      "citations": [
+        "PMID:30414050",
+        "PMID:37119977",
+        "PMID:41395351"
+      ],
+      "notes": "Mainly animal studies (rats at 100 dB, zebrafish); one human RCT compared listening to a 528 Hz OM recording with usual care without any sound control."
+    },
+    {
+      "claim": "binaural beats entrain brainwaves",
+      "citations": [
+        "PMID:37205669",
+        "PMID:29187819",
+        "PMID:12722933"
+      ],
+      "notes": "5 of 14 EEG studies consistent; some show no EEG change."
+    },
+    {
+      "claim": "40 Hz improves focus or prevents dementia",
+      "citations": [
+        "PMID:41381439",
+        "PMID:38515445"
+      ],
+      "notes": "No consistent cognitive benefit; AD trials are device-company funded."
+    },
+    {
+      "claim": "brown noise is best for ADHD",
+      "citations": [
+        "PMID:38428577"
+      ],
+      "notes": "No brown-noise studies in the meta-analysis."
+    }
+  ]
+}
