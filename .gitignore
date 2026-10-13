@@ -3,3 +3,6 @@ node_modules/
 dist/
 .DS_Store
 *.wav
+*.log
+docs/design/gen/status.txt
+.venv/

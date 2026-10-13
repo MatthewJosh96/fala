@@ -1,3 +1,0 @@
-b-mobile rc=0 fresh=yes secs=75
-a-mobile rc=0 fresh=yes secs=114
-a-desktop rc=0 fresh=yes secs=152
