@@ -1,0 +1,7 @@
+Design brief: "Fala" (Polish for "wave") is a focus / relax / sleep audio app that plays science-based functional music. Create an ORIGINAL, high-fidelity product UI mockup (not resembling Endel or Brain.fm). Modern minimalist UI/UX: very few elements per screen, generous whitespace, one clear primary action, large calm typography (geometric sans like Inter / SF Pro), thin strokes, soft depth, accessible contrast, 8-pt spacing grid, rounded 24-px corners. UI labels in Polish exactly as given: "Skupienie" (Focus), "Relaks" (Relax), "Sen" (Sleep), "Start", "Pauza", "Minutnik", "Intensywnosc". Render crisp, realistic device frames on a plain neutral studio background, evenly lit edge to edge. Use your image generation tool to create the image and save it as NAME.png in the current directory. Do not write any code and do not create any other files.
+Image: landscape 1536x1024, three iPhone screens side by side.
+Visual direction B "Daylight paper": warm off-white paper background (#F4F1EA), graphite text, muted sage green accent (#7C9A82) and a soft blurred gradient orb that slowly breathes as the hero visual; Sleep screen switches to deep warm charcoal.
+Screen 1 Home: three mode tiles Skupienie / Relaks / Sen, time-of-day suggestion, resume chip.
+Screen 2 Now playing (Relaks): breathing orb with guide "wdech / wydech" replaced by simple dots, session timer, intensity "Intensywnosc", play/pause, Minutnik.
+Screen 3 Sen: dark charcoal, large clock, fade-out timer, minimal controls.
+Replace NAME with b-mobile.
