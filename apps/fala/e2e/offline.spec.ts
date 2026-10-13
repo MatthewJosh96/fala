@@ -95,6 +95,30 @@ test('downloaded file plays offline after a reload, including a seek to the end'
   expect(afterRemoval).toBe('network-error');
 });
 
+test('a file opened from the network keeps playing after it is downloaded (no reload)', async ({ page }) => {
+  await page.goto('/');
+  await page.waitForFunction(() => navigator.serviceWorker?.controller != null, null, { timeout: 30_000 });
+  // The element has already read metadata through the SW's network path.
+  await expect.poll(async () => (await audioState(page)).duration, { timeout: 15_000 }).toBeGreaterThan(0);
+
+  await page.getByRole('link', { name: 'Pobrane' }).click();
+  const card = page.getByTestId('track-card').filter({ hasText: FIXTURE.title });
+  await card.getByRole('button', { name: 'Pobierz' }).click();
+  await expect(card.getByTestId('offline-badge')).toHaveText(/Dostępne offline/, { timeout: 60_000 });
+
+  await page.getByRole('link', { name: 'Sesja' }).click();
+  await page.getByTestId('toggle').click();
+  await expect.poll(async () => (await audioState(page)).t, { timeout: 15_000 }).toBeGreaterThan(1);
+  expect((await audioState(page)).error).toBeNull();
+  await page.getByLabel('Pozycja odtwarzania').fill('300');
+  await expect.poll(async () => (await audioState(page)).t, { timeout: 15_000 }).toBeGreaterThan(301);
+  expect((await audioState(page)).error).toBeNull();
+
+  await page.getByRole('link', { name: 'Pobrane' }).click();
+  await card.getByRole('button', { name: 'Usuń' }).click();
+  await expect(card.getByTestId('offline-badge')).toHaveText(/Niepobrane/);
+});
+
 test('the app shell is installable: manifest, icons and iOS meta tags', async ({ page, request }) => {
   await page.goto('/');
   await expect(page.locator('meta[name="apple-mobile-web-app-capable"]')).toHaveAttribute('content', 'yes');

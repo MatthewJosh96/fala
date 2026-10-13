@@ -37,8 +37,13 @@ registerRoute(
     url.origin === self.location.origin && url.pathname.startsWith('/media/') && url.pathname !== '/media/index.json',
   async ({ request, url }) => {
     const src = await storedSource(url.pathname);
-    if (!src) return fetch(request);
-    return buildMediaResponse(src, request.headers.get('range'), request.method);
+    if (src) return buildMediaResponse(src, request.headers.get('range'), request.method);
+    // Re-wrap network responses so the media element sees the same kind of response
+    // whether bytes come from the network or from the cache. Chromium fails the read
+    // ("PIPELINE_ERROR_READ") when a source opened from a network response continues
+    // with synthesized ones after the file was downloaded.
+    const net = await fetch(request);
+    return new Response(net.body, { status: net.status, statusText: net.statusText, headers: net.headers });
   },
   'GET',
 );

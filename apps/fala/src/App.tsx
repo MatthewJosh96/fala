@@ -78,9 +78,23 @@ export function App({ player }: { player: Player }) {
 
   const current = tracks.find((t) => t.stored) ?? tracks[0] ?? null;
 
+  // Media must never start outside the service worker: Chromium fails a media source
+  // whose first bytes came straight from the network and later ranges from the SW
+  // (on a first visit the page is not controlled yet). So the source is set only once
+  // the SW controls the page and every byte takes the same path.
+  const [swControls, setSwControls] = useState(
+    () => !('serviceWorker' in navigator) || navigator.serviceWorker.controller !== null,
+  );
   useEffect(() => {
-    if (current) player.load(toTrackMeta(current));
-  }, [current, player]);
+    if (swControls) return;
+    const on = () => setSwControls(navigator.serviceWorker.controller !== null);
+    navigator.serviceWorker.addEventListener('controllerchange', on);
+    return () => navigator.serviceWorker.removeEventListener('controllerchange', on);
+  }, [swControls]);
+
+  useEffect(() => {
+    if (current && swControls) player.load(toTrackMeta(current));
+  }, [current, player, swControls]);
 
   const setOp = (url: string, op: TrackOp | null) =>
     setOps((o) => {
