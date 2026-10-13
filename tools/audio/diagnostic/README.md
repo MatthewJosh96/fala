@@ -17,14 +17,15 @@ Plik jest słyszalny (szum + piknięcia co sekundę). Telefon i Mac najlepiej po
 ## 1. Generowanie (8 h)
 
 ```bash
-tools/audio/diagnostic/generate.sh --duration-s 28800 --out renders/diag/fala-diag-8h.m4a --verify
+tools/audio/diagnostic/generate.sh --duration-s 28800 --out renders/diagnostic/fala-diag-8h.m4a \
+  --title "Fala — diagnostyka 8 h" --id fala-diag-8h --verify
 ```
 
 - około 3 min na Macu mini M4 Pro (10 min pliku generuje się w ~3,3 s), stała pamięć, bez pośredniego WAV;
 - plik około 466 MB, obok `fala-diag-8h.json` z `size` i `sha256` gotowego pliku (PWA sprawdza nimi pobranie);
-- `--verify` dekoduje początek, 5 losowych okien po 30 s i ostatnie 30 s i sprawdza, czy numery sekund zgadzają się z pozycją, a ostatni to 28799. Ponowna weryfikacja istniejącego pliku: `generate.sh verify renders/diag/fala-diag-8h.m4a`.
+- `--verify` dekoduje początek, 5 losowych okien po 30 s i ostatnie 30 s i sprawdza, czy numery sekund zgadzają się z pozycją, a ostatni to 28799. Ponowna weryfikacja istniejącego pliku: `generate.sh verify renders/diagnostic/fala-diag-8h.m4a`.
 
-Katalog `renders/` nie trafia do Gita, jeśli zawiera `.gitignore` z `*` (`record_mac.sh` zakłada go sam).
+Katalog `renders/` jest w głównym `.gitignore`. `renders/diagnostic/` to domyślny katalog mediów PWA (`FALA_MEDIA_DIR`), więc wygenerowane tam pliki od razu pojawiają się w „Pobrane”.
 
 ## 2. Ustawienie nagrania
 
@@ -37,7 +38,8 @@ Katalog `renders/` nie trafia do Gita, jeśli zawiera `.gitignore` z `*` (`recor
 ## 3. Próba generalna (2 min)
 
 ```bash
-tools/audio/diagnostic/generate.sh --duration-s 120 --out renders/diag/fala-diag-2min.m4a --verify
+tools/audio/diagnostic/generate.sh --duration-s 120 --out renders/diagnostic/fala-diag-120s.m4a \
+  --title "Fala — próba 120 s" --id fala-diag-120s --verify
 tools/audio/diagnostic/record_mac.sh --list            # indeks wejścia, np. 0
 tools/audio/diagnostic/record_mac.sh 0 150             # start nagrania, potem play na telefonie
 cd analysis && uv run python -m fala_audio_check.continuity ../renders/recordings/<plik>.flac --expected-duration-s 120
