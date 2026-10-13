@@ -1,0 +1,5 @@
+.collab/
+node_modules/
+dist/
+.DS_Store
+*.wav
