@@ -2,6 +2,8 @@ import { defineConfig } from '@playwright/test';
 import { E2E_MEDIA_DIR } from './e2e/fixture.ts';
 
 const PORT = 4317;
+// The opt-in large-file test points the server at renders/diagnostic instead of the fixture.
+const MEDIA_DIR = process.env.FALA_E2E_MEDIA_DIR ?? E2E_MEDIA_DIR;
 
 export default defineConfig({
   testDir: 'e2e',
@@ -21,7 +23,7 @@ export default defineConfig({
     url: `http://localhost:${PORT}`,
     timeout: 120_000,
     reuseExistingServer: false,
-    env: { FALA_MEDIA_DIR: E2E_MEDIA_DIR },
+    env: { FALA_MEDIA_DIR: MEDIA_DIR },
     stdout: 'ignore',
     stderr: 'pipe',
   },
