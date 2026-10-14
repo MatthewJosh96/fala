@@ -4,7 +4,7 @@ import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { buildIndex, readCatalogueSpec, stageFromSpec, type CatalogueSpec } from './mediaIndex.ts';
+import { buildIndex, compareWithCatalogue, readCatalogueSpec, stageFromSpec, type CatalogueSpec } from './mediaIndex.ts';
 import { parseMediaIndex } from '../src/offline/mediaIndex.ts';
 
 const sha = (b: Uint8Array) => createHash('sha256').update(b).digest('hex');
@@ -82,5 +82,28 @@ describe('media index generation', () => {
     };
     await expect(bad([{ id: 'a', title: 'A', modes: ['party'], variants: [] }])).rejects.toThrow(/unknown mode/);
     await expect(bad([{ id: 'a', title: 'A', modes: [], variants: [{ id: 'a', file: '../a.m4a', source: 'a' }] }])).rejects.toThrow(/bare name/);
+  });
+
+  it('compares the published files with the catalogue: missing and unexpected files are reported', async () => {
+    const a = new Uint8Array([1]);
+    const dir = dirWith({
+      'a.m4a': a,
+      'a.json': JSON.stringify({ track_id: 'a', file: 'a.m4a', size: 1, sha256: sha(a) }),
+      'old.m4a': a,
+      'old.json': JSON.stringify({ track_id: 'old', file: 'old.m4a', size: 1, sha256: sha(a) }),
+    });
+    const spec: CatalogueSpec = {
+      schema: 'fala-catalogue/1',
+      release: 'media-v1',
+      tracks: [
+        { id: 'a', title: 'A', modes: ['focus'], variants: [{ id: 'a', file: 'a.m4a', source: 'x' }] },
+        { id: 'b', title: 'B', modes: ['sleep'], variants: [{ id: 'b', file: 'b.m4a', source: 'y' }] },
+      ],
+    };
+    const index = await buildIndex(dir, { strict: true, verifySha: true });
+    expect(compareWithCatalogue(index, spec)).toEqual({ missing: ['b.m4a'], unexpected: ['old.m4a'] });
+    spec.tracks.pop();
+    spec.tracks.push({ id: 'old', title: 'Old', modes: [], variants: [{ id: 'old', file: 'old.m4a', source: 'z' }] });
+    expect(compareWithCatalogue(index, spec)).toEqual({ missing: [], unexpected: [] });
   });
 });

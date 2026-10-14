@@ -1,0 +1,75 @@
+# Builds the PWA, adds the audio files from the GitHub release named in media/catalogue.json
+# and deploys both to GitHub Pages (https://<owner>.github.io/fala/).
+# Actions are pinned to full commit SHAs; the comment names the release.
+name: Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read # checkout and `gh release download`
+    defaults:
+      run:
+        working-directory: apps/fala
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Node 24 LTS: the media scripts run TypeScript through Node's type stripping.
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: apps/fala/.node-version
+          cache: npm
+          cache-dependency-path: apps/fala/package-lock.json
+
+      - run: npm ci --no-audit --no-fund
+      - run: npm test
+      - run: npm run build
+
+      # Audio never goes through Git: it is a release asset. The index is rebuilt here in strict
+      # mode, so a missing file, a size or SHA-256 mismatch, or a file the catalogue does not list
+      # stops the deploy instead of publishing a broken catalogue.
+      - name: Add media from the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          release=$(node -p 'require("../../media/catalogue.json").release')
+          echo "media release: $release"
+          mkdir -p dist/media
+          gh release download "$release" --repo "$GITHUB_REPOSITORY" --dir dist/media \
+            --pattern '*.m4a' --pattern '*.json'
+          node --experimental-strip-types scripts/media.ts index dist/media \
+            --strict --verify-sha --catalogue ../../media/catalogue.json
+          find dist/media -name '*.json' ! -name index.json -delete
+          ls -l dist/media
+
+      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: apps/fala/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      # Fails early with a clear message if Pages is not set to "GitHub Actions" as its source.
+      - uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
+      - id: deployment
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1

@@ -29,7 +29,7 @@ Poprawki względem makiet:
 | akcent Sen (czerwony, przyciemniony) | `#C98A6B` na tle `#0D0A09` |
 | zaokrąglenia | 24 px karty, 999 px przyciski |
 | siatka | 8 pt |
-| typografia | Inter / SF Pro; zegar sesji 64–72 pt light, tytuły 28–34 pt, opisy 15 pt |
+| typografia | krój systemowy (SF Pro na Apple; Inter odrzucony 2026-10-14, patrz DECISIONS); zegar sesji 64–72 pt light, tytuły 28–34 pt, opisy 15 pt |
 
 ## Ekrany (MVP)
 

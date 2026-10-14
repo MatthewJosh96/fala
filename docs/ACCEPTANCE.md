@@ -5,7 +5,9 @@ pełny 8-godzinny plik **offline, przy zablokowanym ekranie**, bez przerw ≥10 
 systemowa → Capacitor z małym natywnym adapterem AVPlayer (UI zostaje, wymieniany jest tylko `Player`).
 
 Stan (2026-10-14): aplikacja, pliki diagnostyczne (8 h, 30 min, 120 s), detektor i skrypt nagrywania
-są gotowe i przetestowane lokalnie (Vitest 40, Playwright 3 + 1 opcjonalny z plikiem 8 h, pytest 52).
+są gotowe i przetestowane lokalnie (Vitest 82, Playwright 10 + 2 opcjonalne: plik 8 h i zrzuty ekranów,
+pytest 52). Aplikacja działa pod ścieżką `/fala/` (jak na GitHub Pages, `docs/DEPLOY.md`), także lokalnie.
+Plik 8 h usunięto 2026-10-14 (brak miejsca na dysku) — przed testem wygeneruj go ponownie (§3).
 **Nie wykonano**: udostępnienia telefonowi (wymaga zgody Maćka), próby generalnej z mikrofonem,
 testu nocnego, testów przerwań.
 
@@ -15,7 +17,7 @@ testu nocnego, testów przerwań.
 |---|---|---|
 | PWA (React + TS + Vite, Workbox) | `apps/fala/` | `npm ci && npm run build && npm run preview` |
 | Testy jednostkowe (Vitest) | `apps/fala/src/**/*.test.ts`, `apps/fala/server/*.test.ts` | `npm test` |
-| Testy e2e (Playwright, Chromium) | `apps/fala/e2e/` | `npm run test:e2e` (sam buduje i uruchamia serwer na :4317) |
+| Testy e2e (Playwright, Chromium) | `apps/fala/e2e/` | `npm run test:e2e` (sam buduje i uruchamia serwer na :4317, aplikacja pod `/fala/`) |
 | Generator pliku diagnostycznego | `tools/audio/diagnostic/` + `analysis/src/fala_audio_check/diagnostic.py` | patrz §3 |
 | Detektor ciągłości | `analysis/src/fala_audio_check/continuity.py` | patrz §6 |
 | Skrypt nagrywania (Mac) | `tools/audio/diagnostic/record_mac.sh` | patrz §5 |
@@ -33,15 +35,18 @@ Ekran blokady: Media Session (tytuł, okładka, odtwórz/pauza, przewijanie). Dz
 cd apps/fala
 npm ci                      # .npmrc ma legacy-peer-deps (błąd npm z opcjonalnymi peerami)
 npm test                    # Vitest
-npm run test:e2e            # Playwright: pobranie → offline → przeładowanie → odtworzenie → seek do końca
+npm run test:e2e            # Playwright: tryby, minutnik, oddech, pobranie → offline → odtworzenie, Pobrane → Odtwórz do końca
 npm run build
-FALA_MEDIA_DIR="$PWD/../../renders/diagnostic" npm run preview   # http://localhost:4317
+FALA_MEDIA_DIR="$PWD/../../renders/diagnostic" npm run preview   # http://localhost:4317/fala/
 ```
 
-`FALA_MEDIA_DIR` to katalog z plikami `.m4a` i ich sidecarami `.json` (generator tworzy oba).
-Domyślnie `renders/diagnostic/` w katalogu głównym repo (poza Gitem). Serwer mediów jest wpięty w
-`vite preview` (`apps/fala/server/mediaPlugin.ts`): `/media/index.json` to katalog ścieżek,
-`/media/<plik>` obsługuje Range. Plik nie trafia do `dist/` ani do precache Workboxa.
+`FALA_MEDIA_DIR` to katalog z plikami `.m4a` i ich sidecarami `.json` (generator tworzy oba); do testu
+nocnego `renders/diagnostic/` (poza Gitem). Bez tej zmiennej serwer bierze `apps/fala/.media`, czyli
+utwory trybów przygotowane przez `npm run media:stage`. Serwer mediów jest wpięty w `vite preview`
+(`apps/fala/server/mediaPlugin.ts`): `/fala/media/index.json` to katalog ścieżek, `/fala/media/<plik>`
+obsługuje Range. Plik nie trafia do `dist/` ani do precache Workboxa. Pliki diagnostyczne nie mają
+trybów, więc w aplikacji są tylko w „Pobranych” (przycisk **Odtwórz** → ekran „Odtwarzacz testowy”:
+bez pętli i minutnika, plik gra do końca).
 
 ## 3. Plik diagnostyczny
 
@@ -56,7 +61,7 @@ Wygenerowane pliki (poza Gitem, `renders/diagnostic/`, każdy z sidecarem `.json
 
 | Plik | Rozmiar | SHA-256 | Weryfikacja po zdekodowaniu |
 |---|---|---|---|
-| `fala-diag-8h.m4a` (28 800 s) | 466 206 493 B | `c99e298f3dc2bd8cbcd08a1a13b9922747c65c756724ec3e51f687abfd84a8cd` | ffprobe: aac LC 48 kHz 2 ch 128 kb/s, 28 800,0 s; 7 okien (początek, 5 losowych, koniec) odczytane, ostatnia sekunda 28799 |
+| `fala-diag-8h.m4a` (28 800 s; usunięty 2026-10-14, regeneruj poniżej) | 466 206 493 B | `c99e298f3dc2bd8cbcd08a1a13b9922747c65c756724ec3e51f687abfd84a8cd` | ffprobe: aac LC 48 kHz 2 ch 128 kb/s, 28 800,0 s; 7 okien (początek, 5 losowych, koniec) odczytane, ostatnia sekunda 28799 |
 | `fala-diag-30min.m4a` (1 800 s, testy przerwań) | 29 139 608 B | w sidecarze | ostatnia sekunda 1799 |
 | `fala-diag-120s.m4a` (próba generalna) | 1 944 357 B | w sidecarze | ostatnia sekunda 119 |
 
@@ -86,7 +91,7 @@ i pobrania pliku; w nocy telefon jest offline.
 
 ### Opcja A (rekomendowana): `tailscale serve` w tailnecie
 
-Adres: `https://maciejs-mac-mini.tail0d9374.ts.net/` — widoczny tylko dla urządzeń w Twoim tailnecie,
+Adres: `https://maciejs-mac-mini.tail0d9374.ts.net/fala/` — widoczny tylko dla urządzeń w Twoim tailnecie,
 certyfikat Let's Encrypt wystawia Tailscale. Telefon i tak jest już w tailnecie (Termius/SSH).
 
 1. Jednorazowo: w panelu Tailscale → DNS włącz **MagicDNS** i **HTTPS Certificates**
@@ -96,7 +101,7 @@ certyfikat Let's Encrypt wystawia Tailscale. Telefon i tak jest już w tailnecie
    ```sh
    cd apps/fala && npm run build
    FALA_MEDIA_DIR="$PWD/../../renders/diagnostic" npm run preview &   # :4317 tylko na localhost
-   tailscale serve --bg 4317          # https://maciejs-mac-mini.tail0d9374.ts.net → localhost:4317
+   tailscale serve --bg 4317          # https://maciejs-mac-mini.tail0d9374.ts.net → localhost:4317 (aplikacja: /fala/)
    tailscale serve status
    ```
 3. Po pobraniu pliku na telefon: `tailscale serve reset` (obecnie nie ma innej konfiguracji serve,
@@ -112,7 +117,7 @@ bezpośrednie). Minus: zmiana konfiguracji Tailscale (serve) na czas instalacji.
 brew install cloudflared            # nie jest zainstalowany
 cd apps/fala && npm run build
 FALA_MEDIA_DIR="$PWD/../../renders/diagnostic" npm run preview &
-cloudflared tunnel --url http://localhost:4317   # wypisze https://<losowe>.trycloudflare.com
+cloudflared tunnel --url http://localhost:4317   # wypisze https://<losowe>.trycloudflare.com (aplikacja: /fala/)
 ```
 
 W `vite.config.ts` trzeba wtedy dopisać `'.trycloudflare.com'` do `preview.allowedHosts`.
@@ -121,9 +126,11 @@ z linkiem ma dostęp, dopóki tunel działa), 460 MB idzie przez Cloudflare, a k
 origin — zainstalowana PWA i jej pobrane dane są przypisane do originu, więc po zmianie adresu trzeba
 instalować i pobierać od nowa.
 
-Dlaczego nie „zwykły” deploy (Vercel, Cloudflare Pages, GitHub Pages): limity rozmiaru pojedynczego
-pliku statycznego (25–100 MB) nie mieszczą 460 MB, a przeniesienie pliku do zewnętrznego magazynu (R2/S3)
-wymaga CORS i zmian w SW (origin mediów ≠ origin aplikacji). Do jednorazowego testu nie warto.
+Dlaczego nie wersja z GitHub Pages (`docs/DEPLOY.md`): publikowany jest tylko katalog utworów trybów,
+plik diagnostyczny 8 h (466 MB) nie — nie mieści się w rozsądnym limicie strony (Pages: 1 GB na całą
+stronę), a przeniesienie go do zewnętrznego magazynu (R2/S3) wymaga CORS i zmian w SW (origin mediów ≠
+origin aplikacji). Do jednorazowego testu nie warto. Uwaga: aplikacja z Pages i z serwera lokalnego to
+różne originy, czyli osobne instalacje na ekranie początkowym i osobne pobrane pliki.
 
 ## 5. Procedura testu nocnego
 
@@ -135,12 +142,12 @@ Przygotowanie (dzień wcześniej)
 
 Instalacja i pobranie
 3. Uruchom serwer i wybrany wariant HTTPS (§4).
-4. Na iPhonie w Safari otwórz adres → Udostępnij → **Dodaj do ekranu początkowego** (z włączonym
+4. Na iPhonie w Safari otwórz adres z §4 (z `/fala/` na końcu) → Udostępnij → **Dodaj do ekranu początkowego** (z włączonym
    „Otwórz jako aplikację internetową”).
 5. Uruchom Falę **z ekranu początkowego**. Uwaga: Safari i aplikacja z ekranu początkowego mają osobne
    magazyny — plik pobrany w karcie Safari nie będzie widoczny w aplikacji. Aplikacja pokazuje
    ostrzeżenie, gdy działa w karcie przeglądarki.
-6. „Pobrane” → **Pobierz** przy „Fala — diagnostyka 8 h”. Nie blokuj ekranu do końca (pobieranie
+6. „Pobrane” (link na dole ekranu głównego) → **Pobierz** przy „Fala — diagnostyka 8 h”. Nie blokuj ekranu do końca (pobieranie
    + weryfikacja SHA-256 ok. 466 MB; aplikacja prosi o Wake Lock, ale nie przełączaj się do innych
    aplikacji). Wynik: „Dostępne offline”. Opcjonalnie **Sprawdź plik**.
 7. „Pamięć trwała”: jeśli nie „przyznana”, stuknij **Poproś o pamięć trwałą** i zapisz wynik
@@ -152,8 +159,8 @@ Odcięcie od sieci
    do sieci.
 10. Na iPhonie włącz **tryb samolotowy** i upewnij się, że Wi-Fi i Bluetooth są wyłączone
     (tryb samolotowy pamięta wcześniejsze włączenie Wi-Fi).
-11. Uruchom Falę z ekranu początkowego. Na ekranie „Sesja”: „Dostępne offline”. W „Pobrane” →
-    Dziennik → **Wyczyść dziennik**.
+11. Uruchom Falę z ekranu początkowego → „Pobrane”: przy „Fala — diagnostyka 8 h” znaczek
+    „Dostępne offline”. Tamże Dziennik → **Wyczyść dziennik**.
 
 Nagranie i start
 12. Mikrofon: **Mac mini nie ma wbudowanego mikrofonu** — domyślnym wejściem jest kamera MX Brio 705
@@ -166,12 +173,13 @@ Nagranie i start
     nikt nie śpi.
     Głośność umiarkowana (tło szumu ma być wyraźnie słyszalne).
 13. Na Macu uruchom nagrywanie (§5a) **przed** startem odtwarzania; sprawdź poziom przez pierwsze 30 s.
-14. Stuknij **Odtwórz**. Sprawdź ekran blokady: tytuł, okładka, przycisk pauzy, pasek pozycji
+14. W „Pobranych” stuknij **Odtwórz** przy „Fala — diagnostyka 8 h” — otworzy się „Odtwarzacz testowy”
+    (adres `…/fala/#/odtwarzacz`). Stuknij przycisk odtwarzania. Sprawdź ekran blokady: tytuł, okładka, przycisk pauzy, pasek pozycji
     (Media Session). Zablokuj ekran przyciskiem bocznym. Zapisz godzinę startu.
 15. Nie dotykaj telefonu przez co najmniej 8 h 10 min.
 
 Rano
-16. Zatrzymaj nagrywanie (Ctrl+C) dopiero po końcu pliku. Odblokuj telefon, zrób zrzuty „Sesja”
+16. Zatrzymaj nagrywanie (Ctrl+C) dopiero po końcu pliku. Odblokuj telefon, zrób zrzuty „Odtwarzacz testowy”
     i „Pobrane → Dziennik odtwarzania”. Oczekiwane: status „Plik odtworzony do końca”, w dzienniku
     `play` na starcie i jedno `pause — koniec pliku`, bez `waiting`/`stalled`/`error`/`pause` w środku.
 17. Sprawdź log ffmpeg z nagrywania (overruny/dropy po stronie Maca unieważniają nagranie — wtedy
@@ -184,7 +192,7 @@ Najpierw próba generalna (2 min) z plikiem `fala-diag-120s.m4a` pobranym w apli
 
 ```sh
 tools/audio/diagnostic/record_mac.sh --list        # indeks wejścia audio, np. 0 (MX Brio)
-tools/audio/diagnostic/record_mac.sh 0 150         # start nagrania, potem Odtwórz na telefonie
+tools/audio/diagnostic/record_mac.sh 0 150         # start nagrania, potem na telefonie Pobrane → Odtwórz → ▶
 cd analysis && uv run python -m fala_audio_check.continuity \
   ../renders/recordings/<plik>.flac --expected-duration-s 120
 ```

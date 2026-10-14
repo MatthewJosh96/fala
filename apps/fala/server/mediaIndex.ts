@@ -161,6 +161,16 @@ export async function readCatalogueSpec(file: string): Promise<CatalogueSpec> {
   return spec;
 }
 
+/** Files the catalogue lists but the index lacks, and files published without a catalogue entry. */
+export function compareWithCatalogue(index: MediaIndex, spec: CatalogueSpec): { missing: string[]; unexpected: string[] } {
+  const published = new Set(index.tracks.flatMap((t) => t.variants.map((v) => v.file)));
+  const wanted = new Set(spec.tracks.flatMap((t) => t.variants.map((v) => v.file)));
+  return {
+    missing: [...wanted].filter((f) => !published.has(f)).sort(),
+    unexpected: [...published].filter((f) => !wanted.has(f)).sort(),
+  };
+}
+
 /**
  * Puts every published file into outDir (symlink, or copy) next to a sidecar with its
  * size, SHA-256 and duration. The sidecar is the contract the app verifies downloads against.
