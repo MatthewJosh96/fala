@@ -35,6 +35,8 @@ jobs:
           cache-dependency-path: apps/fala/package-lock.json
 
       - run: npm ci --no-audit --no-fund
+      # The media staging test encodes a short fixture; ubuntu-latest no longer ships ffmpeg.
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
       - run: npm test
       - run: npm run build
 
