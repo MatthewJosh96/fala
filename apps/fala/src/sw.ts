@@ -23,13 +23,22 @@ declare const self: ServiceWorkerGlobalScope & { __WB_MANIFEST: Array<{ url: str
 self.addEventListener('message', (event) => {
   const type = (event.data as { type?: unknown } | null)?.type;
   if (type === 'SKIP_WAITING') void self.skipWaiting();
+  if (type === 'FALA_BUILD') event.ports[0]?.postMessage(BUILD);
   // A page changed storage (download, removal) or lists it: free what nobody reads, then answer.
   if (type === 'FALA_GC') event.waitUntil(collect().then(() => event.ports[0]?.postMessage('done')));
 });
 // The first worker still takes control right away: media only starts once a worker controls the page.
 clientsClaim();
 cleanupOutdatedCaches();
-precacheAndRoute(self.__WB_MANIFEST);
+const manifest = self.__WB_MANIFEST;
+precacheAndRoute(manifest);
+
+// Identifies this version (its asset revisions) for pages deciding about an update (app/handoff.ts).
+const BUILD = (() => {
+  let h = 0x811c9dc5;
+  for (const ch of JSON.stringify(manifest)) h = Math.imul(h ^ ch.charCodeAt(0), 0x01000193) >>> 0;
+  return h.toString(36);
+})();
 
 // One reader per file, reused across requests so its small chunk memory helps
 // the many short ranges a media element issues while seeking.
@@ -37,8 +46,11 @@ const sources = new Map<string, { attempt: string; src: ChunkSource }>();
 
 /*
  * Replaced or removed copies are "retired" and freed only when no response stream reads
- * them. This worker is the only place that knows its open streams; a fresh worker has none
- * (streams die with the worker), so it collects on start-up too.
+ * them. This worker is the only place that knows its open streams. Collection runs when its
+ * last stream closes, when a page asks (FALA_GC: after a download or removal and on every
+ * catalogue listing, app start included) and when a new version activates. A worker instance
+ * restarted by the browser starts with no open streams (they die with the instance), but
+ * 'activate' does not fire then; the pages' FALA_GC requests cover that case.
  */
 let collecting: Promise<void> | null = null;
 let collectAgain = false;

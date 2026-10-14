@@ -86,6 +86,8 @@ export class DownloadError extends Error {
 }
 
 const BUSY_MESSAGE = 'ten plik jest właśnie pobierany lub usuwany (w tym albo innym oknie aplikacji)';
+/** A busy file is tried once more after this pause: short holders (e.g. the service worker freeing a retired copy) are not an error. */
+const BUSY_RETRY_MS = 250;
 
 const enc = (path: string) => encodeURIComponent(path);
 export const metaKey = (path: string) => `/__fala/meta/${enc(path)}`;
@@ -145,6 +147,18 @@ export function parseStoredMeta(json: unknown): StoredMeta | null {
     isNum(m.chunkCount) &&
     m.chunkCount === Math.ceil((m.size as number) / (m.chunkSize as number));
   return ok ? (m as unknown as StoredMeta) : null;
+}
+
+async function hasAllChunks(cache: CacheLike, meta: StoredMeta): Promise<boolean> {
+  const present = new Set<number>();
+  for (const k of await cache.keys()) {
+    const key = parseKey(k.url);
+    if (key.kind !== 'chunk' || key.path !== meta.url || key.attempt !== meta.attempt) continue;
+    const i = Number(new URL(k.url, 'http://local').pathname.split('/').pop());
+    if (Number.isInteger(i)) present.add(i);
+  }
+  for (let i = 0; i < meta.chunkCount; i++) if (!present.has(i)) return false;
+  return true;
 }
 
 function expectedChunkLength(meta: Pick<StoredMeta, 'size' | 'chunkSize' | 'chunkCount'>, i: number) {
@@ -245,20 +259,33 @@ function resolveLocks(locks: LockManagerLike | null | undefined): LockManagerLik
   return (nav?.locks as LockManagerLike | undefined) ?? null;
 }
 
-/** Runs fn holding the file's lock; refuses at once if another attempt or removal holds it. */
-async function withTrackLock<T>(locks: LockManagerLike | null, path: string, fn: () => Promise<T>): Promise<T> {
+type Locked<T> = { acquired: true; value: T } | { acquired: false };
+
+async function tryTrackLock<T>(locks: LockManagerLike | null, path: string, fn: () => Promise<T>): Promise<Locked<T>> {
   if (locks) {
-    return locks.request(lockName(path), { ifAvailable: true }, async (lock) => {
-      if (!lock) throw new DownloadError('busy', BUSY_MESSAGE);
-      return fn();
-    });
+    return locks.request(lockName(path), { ifAvailable: true }, async (lock): Promise<Locked<T>> =>
+      lock ? { acquired: true, value: await fn() } : { acquired: false },
+    );
   }
-  if (localBusy.has(path)) throw new DownloadError('busy', BUSY_MESSAGE);
+  if (localBusy.has(path)) return { acquired: false };
   localBusy.add(path);
   try {
-    return await fn();
+    return { acquired: true, value: await fn() };
   } finally {
     localBusy.delete(path);
+  }
+}
+
+/**
+ * Runs fn holding the file's lock. If the lock is taken, waits briefly and tries once more;
+ * still taken means another attempt or removal is running: refused with 'busy'.
+ */
+async function withTrackLock<T>(locks: LockManagerLike | null, path: string, fn: () => Promise<T>): Promise<T> {
+  for (let tries = 0; ; tries++) {
+    const r = await tryTrackLock(locks, path, fn);
+    if (r.acquired) return r.value;
+    if (tries >= 1) throw new DownloadError('busy', BUSY_MESSAGE);
+    await new Promise((resolve) => setTimeout(resolve, BUSY_RETRY_MS));
   }
 }
 
@@ -519,8 +546,14 @@ export async function downloadTrack(
   return withTrackLock(resolveLocks(opts.locks), track.url, async () => {
     const cache = await caches.open(CACHE_NAME);
     const previous = await readMeta(cache, track.url);
-    // The same bytes are already stored and verified (e.g. a stale window asked again): keep them.
-    if (previous && previous.size === track.size && previous.sha256.toLowerCase() === track.sha256.toLowerCase()) {
+    // The same bytes are already stored and verified (e.g. a stale window asked again): keep
+    // them, if every chunk is still there (cheap key check, no hashing; "Sprawdź plik" hashes).
+    if (
+      previous &&
+      previous.size === track.size &&
+      previous.sha256.toLowerCase() === track.sha256.toLowerCase() &&
+      (await hasAllChunks(cache, previous))
+    ) {
       return previous;
     }
     // Holding the lock, nothing else works on this file: leftovers of dead attempts can go.

@@ -40,13 +40,16 @@ export function FocusScreen({
   tracks,
   trackId,
   onTrack,
+  pinnedTitle = null,
 }: {
   view: SessionView;
   tracks: CatalogueTrack[];
   trackId: string | null;
   onTrack: (id: string) => void;
+  /** The session's track when the catalogue no longer lists it. */
+  pinnedTitle?: string | null;
 }) {
-  const current = tracks.find((t) => t.id === trackId) ?? null;
+  const current = pinnedTitle ? null : (tracks.find((t) => t.id === trackId) ?? null);
   return (
     <section className={`mode-screen focus ${view.playing ? 'is-playing' : ''}`}>
       <TopBar title="Skupienie" />
@@ -58,8 +61,10 @@ export function FocusScreen({
       </Ring>
 
       <div className="track">
-        <h2 className="track-title">{current?.title ?? 'Brak utworu'}</h2>
-        <p className="muted track-sub">{current ? 'Muzyka do skupienia' : 'Katalog utworów jest niedostępny.'}</p>
+        <h2 className="track-title">{pinnedTitle ?? current?.title ?? 'Brak utworu'}</h2>
+        <p className="muted track-sub">
+          {pinnedTitle ? 'Niedostępny' : current ? 'Muzyka do skupienia' : 'Katalog utworów jest niedostępny.'}
+        </p>
         <Availability file={view.file} op={view.op} online={view.online} onDownload={view.onDownload} />
       </div>
 
@@ -68,7 +73,7 @@ export function FocusScreen({
           legend="Utwór"
           name="focus-track"
           options={tracks.map((t) => t.id)}
-          value={trackId ?? ''}
+          value={pinnedTitle ? '' : (trackId ?? '')}
           onChange={onTrack}
           format={(id) => tracks.find((t) => t.id === id)?.title ?? id}
         />

@@ -30,7 +30,9 @@ const idle = (a: Activity) => canUpdateNow(a) && !a.liveSession;
 /**
  * The one policy for every reload. `stalled`: the takeover we asked for has not happened in
  * time (another page may hold the old worker); reloading this page frees our side of it, but
- * only if, at that moment, nothing plays and nothing is being stored.
+ * only if, at that moment, the page is fully idle. This page still runs on the old worker, so
+ * nothing is urgent: a paused session is not cut for it (unlike 'activated'). The fallback
+ * runs at most once per waiting worker (app/handoff.ts).
  */
 export function updateStep(state: UpdateState, a: Activity, stalled = false): UpdateStep {
   switch (state) {
@@ -38,7 +40,7 @@ export function updateStep(state: UpdateState, a: Activity, stalled = false): Up
       return idle(a) ? 'apply' : 'defer';
     case 'applying':
       if (!stalled) return 'none';
-      return canUpdateNow(a) ? 'reload' : 'defer';
+      return idle(a) ? 'reload' : 'defer';
     case 'activated':
       return canUpdateNow(a) ? 'reload' : 'defer';
     case 'controlling':

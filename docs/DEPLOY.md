@@ -117,7 +117,8 @@ Aplikacja sama decyduje, kiedy przejść na nową wersję (`registerType: 'promp
 - W trakcie odtwarzania albo pobierania aktualizacja czeka do końca, a zamiast przycisku jest dopisek
   „po zatrzymaniu dźwięku”.
 - Gdy przejęcie nie nastąpi w 10 s (np. inne okno aplikacji wciąż gra ze starej wersji), strona przeładuje
-  się dopiero wtedy, gdy nic w niej nie gra i nic się nie pobiera.
+  się raz, i tylko gdy jest w pełni bezczynna: nic nie gra, nic się nie pobiera, nie ma wstrzymanej sesji.
+  Dla tej samej czekającej wersji drugi raz tego nie robi; czeka, aż drugie okno przestanie grać.
 - Zamknięcie wszystkich okien aplikacji też kończy czekanie: przy następnym uruchomieniu działa już nowa
   wersja.
 

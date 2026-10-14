@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { readFileSync, renameSync } from 'node:fs';
 import path from 'node:path';
 import { expect, test } from '@playwright/test';
 import { BASE, E2E_MEDIA_DIR, TONE, TRACKS } from './fixture';
@@ -207,6 +207,55 @@ test('coming back online keeps the session on the track it plays (R4)', async ({
   expect(s.paused).toBe(false);
   await expect(page.locator('.track-title')).toHaveText(TRACKS.pulse.title);
   await expect(page.getByRole('radio', { name: TRACKS.pulse.title })).toBeChecked();
+});
+
+test('if the playing file leaves the catalogue, the toggle still stops it and the status says why (L4)', async ({ page }) => {
+  const sidecar = path.join(E2E_MEDIA_DIR, TRACKS.morning.file.replace(/\.m4a$/, '.json'));
+  await openApp(page);
+  await modeCard(page, 'Skupienie').click();
+  await expectPlaying(page);
+  renameSync(sidecar, `${sidecar}.hidden`); // the server's catalogue no longer lists it
+  try {
+    await page.evaluate(() => window.dispatchEvent(new Event('online'))); // catalogue refresh
+    await expect(page.getByRole('group', { name: 'Utwór' })).toHaveCount(0);
+    await page.getByTestId('toggle').click();
+    await expect.poll(async () => (await audioState(page)).paused).toBe(true);
+    await expect(page.getByTestId('toggle')).toHaveAttribute('aria-label', 'Odtwórz');
+    await expect(page.getByTestId('status')).toHaveText(/nie ma już w katalogu/);
+    await expect(page.locator('.track-title')).toHaveText(TRACKS.morning.title);
+  } finally {
+    renameSync(`${sidecar}.hidden`, sidecar);
+  }
+});
+
+test('removing a file in another window keeps its playback going; the space is freed once it stops (R2)', async ({ context }) => {
+  const a = await context.newPage();
+  await openApp(a, '#/skupienie');
+  await a.getByTestId('download').click();
+  await expect(a.getByTestId('availability')).toHaveText(/Dostępne offline/, { timeout: 60_000 });
+  await a.getByTestId('toggle').click();
+  await expectPlaying(a);
+
+  const b = await context.newPage();
+  await openApp(b, '#/pobrane');
+  const card = b.getByTestId('track-card').filter({ hasText: TRACKS.morning.title });
+  await card.getByRole('button', { name: 'Usuń' }).click();
+  await expect(card.getByTestId('offline-badge')).toHaveText(/Niepobrane/);
+
+  const t = (await audioState(a)).t;
+  await expect.poll(async () => (await audioState(a)).t, { timeout: 10_000 }).toBeGreaterThan(t + 2);
+  expect((await audioState(a)).error).toBeNull();
+
+  await a.close(); // its stream ends; the service worker frees the retired copy
+  await expect
+    .poll(
+      async () => {
+        await b.reload();
+        return b.getByTestId('media-usage').textContent();
+      },
+      { timeout: 20_000 },
+    )
+    .toMatch(/^Pobrane pliki: 0 MB$/);
 });
 
 test('an unknown path under /fala/ (GitHub Pages 404 page) returns to the app and keeps the screen', async ({ page }) => {

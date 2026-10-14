@@ -413,3 +413,36 @@ describe('ReaderRegistry (service worker side)', () => {
     expect(r.isOpen(meta.attempt)).toBe(false);
   });
 });
+
+describe('reviewer follow-ups', () => {
+  it('an identical copy is reused only if all its chunks are still there; otherwise it is fetched again (L2)', async () => {
+    const { bytes, track } = fixture();
+    const caches = new FakeCaches();
+    const locks = new FakeLocks();
+    const first = await downloadTrack(track, { caches, locks, fetchFn: fetchOf(bytes), chunkSize: CHUNK });
+    const cache = await caches.open(CACHE_NAME);
+    await cache.delete(chunkKey(track.url, first.attempt, 3)); // e.g. evicted or damaged storage
+    let fetches = 0;
+    const counting = (async (...args: Parameters<typeof fetch>) => {
+      fetches++;
+      return fetchOf(bytes)(...args);
+    }) as typeof fetch;
+    await downloadTrack(track, { caches, locks, fetchFn: counting, chunkSize: CHUNK });
+    expect(fetches).toBe(1);
+    expect(await verifyStored(caches, track.url)).toEqual({ ok: true });
+  });
+
+  it('a short lock collision (e.g. the service worker freeing a retired copy) is retried once, not reported (L5)', async () => {
+    const { bytes, track } = fixture();
+    const caches = new FakeCaches();
+    const locks = new FakeLocks();
+    const hold = (ms: number) =>
+      void locks.request(`fala-media:${track.url}`, {}, () => new Promise((r) => setTimeout(r, ms)));
+    hold(60);
+    await downloadTrack(track, { caches, locks, fetchFn: fetchOf(bytes), chunkSize: CHUNK });
+    expect(await verifyStored(caches, track.url)).toEqual({ ok: true });
+    hold(60);
+    await removeTrack(caches, track.url, { locks });
+    expect(await listStored(caches)).toEqual([]);
+  });
+});

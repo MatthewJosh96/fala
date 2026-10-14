@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 import { latestOnly } from './app/latest';
 import { loadPrefs, savePrefs, type Prefs } from './app/prefs';
 import { MODE_LABEL, MODE_ROUTE, hrefFor, parseRoute, type Route } from './app/routes';
+import { handoffGuard, waitingWorkerId } from './app/handoff';
 import { canUpdateNow, updateStep, updates, type Activity } from './app/updates';
 import {
   allFiles,
@@ -62,6 +63,8 @@ interface Session {
    * one). A refreshed catalogue (e.g. back online) never swaps it; only the user does.
    */
   fileUrl: string | null;
+  /** Title of that file, still shown if the catalogue stops listing it. */
+  fileTitle: string | null;
   finished: boolean;
   startRate: number;
 }
@@ -223,7 +226,9 @@ export function App({ player }: { player: Player }) {
     if (!swControls) return;
     if (session && sessionFile) {
       player.load(toTrackMeta(sessionFile, MODE_LABEL[session.mode], true));
-      if (!session.fileUrl) setSession((s) => (s && !s.fileUrl ? { ...s, fileUrl: sessionFile.url } : s));
+      if (!session.fileUrl) {
+        setSession((s) => (s && !s.fileUrl ? { ...s, fileUrl: sessionFile.url, fileTitle: sessionFile.title } : s));
+      }
     } else if (!session && diagFile) player.load(toTrackMeta(diagFile, 'Odtwarzacz testowy', false));
   }, [session?.mode, sessionFile?.url, diagFile?.url, swControls, player]);
 
@@ -275,6 +280,7 @@ export function App({ player }: { player: Player }) {
       timer: keepsPlaying ? startTimer(createTimer(minutes), t) : createTimer(minutes),
       pacer: newClock(keepsPlaying, t),
       fileUrl: file?.url ?? null,
+      fileTitle: file?.title ?? null,
       finished: false,
       startRate: prefs.relax.startRate,
     });
@@ -290,7 +296,13 @@ export function App({ player }: { player: Player }) {
   const onToggle = (mode: Mode) => {
     if (session?.mode !== mode) return startMode(mode, true);
     const file = sessionFile;
-    if (!file || !swControls) return;
+    if (!file) {
+      // The session's file left the catalogue (removed, no longer published): it cannot be
+      // started again, but what still plays can always be stopped.
+      if (playing) player.pause();
+      return;
+    }
+    if (!swControls) return;
     if (state.track?.src !== file.url) {
       player.load(toTrackMeta(file, MODE_LABEL[mode], true));
       void player.play();
@@ -315,7 +327,7 @@ export function App({ player }: { player: Player }) {
     const file = track ? pickFile(track) : null;
     if (!file) return;
     const wasPlaying = playing;
-    setSession({ ...session, fileUrl: file.url });
+    setSession({ ...session, fileUrl: file.url, fileTitle: file.title });
     player.load(toTrackMeta(file, MODE_LABEL.focus, true));
     if (wasPlaying) void player.play();
   };
@@ -398,6 +410,11 @@ export function App({ player }: { player: Player }) {
     if (session?.mode !== mode) return '';
     if (session.finished) return 'Sesja zakończona — Minutnik zatrzymał dźwięk';
     if (state.status === 'error') return `Błąd odtwarzania: ${state.error ?? ''}`;
+    if (session.fileUrl && !sessionFile) {
+      return playing
+        ? 'Tego utworu nie ma już w katalogu ani w pobranych. Gra, dopóki starczy danych; po zatrzymaniu nie wznowi się.'
+        : 'Tego utworu nie ma już w katalogu ani w pobranych. Wybierz inny tryb lub utwór.';
+    }
     if (!sessionFile) return catalogueLoaded ? 'Brak utworu dla tego trybu' : 'Wczytuję katalog…';
     if (!swControls || state.track?.src !== sessionFile.url) return 'Przygotowuję odtwarzanie…';
     if (state.waiting && playing) return 'Buforowanie…';
@@ -449,8 +466,17 @@ export function App({ player }: { player: Player }) {
   useEffect(() => {
     setHandoffStalled(false);
     if (update !== 'applying') return;
-    const id = setTimeout(() => setHandoffStalled(true), 10_000);
-    return () => clearTimeout(id);
+    let cancelled = false;
+    const id = setTimeout(() => {
+      // Once per waiting worker: after this reload the same worker would stall again (M1).
+      void waitingWorkerId().then((worker) => {
+        if (!cancelled && handoffGuard.claim(worker)) setHandoffStalled(true);
+      });
+    }, 10_000);
+    return () => {
+      cancelled = true;
+      clearTimeout(id);
+    };
   }, [update]);
   const step = updateStep(update, activity, handoffStalled);
   useEffect(() => {
@@ -490,6 +516,7 @@ export function App({ player }: { player: Player }) {
             view={view('focus')}
             tracks={tracksForMode(catalogue.tracks, 'focus')}
             trackId={(session?.mode === 'focus' ? sessionFile?.trackId : null) ?? modeTrack('focus')?.id ?? null}
+            pinnedTitle={session?.mode === 'focus' && session.fileUrl && !sessionFile ? session.fileTitle : null}
             onTrack={onFocusTrack}
           />
         )}

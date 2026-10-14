@@ -100,3 +100,21 @@ test('if the takeover stalls, the 10 s fallback never reloads a page that starte
   expect(loadsA(), 'the fallback reloaded a playing page').toBe(0);
   expect((await audioState(a)).paused).toBe(false);
 });
+
+test('a stalled takeover reloads an idle page at most once for the same waiting worker (M1)', async ({ context }) => {
+  const b = await context.newPage();
+  await openApp(b);
+  await modeCard(b, 'Skupienie').click();
+  await expectPlaying(b);
+
+  const a = await context.newPage();
+  await openApp(a);
+  const loadsA = countLoads(a);
+  await publishNewWorker(a);
+  await expect(a.getByTestId('update')).toContainText('Aktualizuję', { timeout: 20_000 });
+  await expect.poll(loadsA, { timeout: 20_000 }).toBe(1); // the one fallback reload
+  await a.waitForTimeout(14_000); // the old code reloaded again ~10 s later, and so on
+  expect(loadsA(), 'the idle page kept reloading').toBe(1);
+  await expect(a.getByTestId('update')).toContainText('Aktualizuję'); // still waiting for window B
+  expect((await audioState(b)).paused).toBe(false);
+});

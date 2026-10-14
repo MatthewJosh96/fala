@@ -55,7 +55,8 @@ describe('service worker updates wait for a quiet moment', () => {
   it('a takeover that stalls reloads only when nothing plays or stores, re-checked when the fallback fires (R3)', () => {
     expect(updateStep('applying', idle, false)).toBe('none');
     expect(updateStep('applying', idle, true)).toBe('reload');
-    expect(updateStep('applying', { ...idle, liveSession: true }, true)).toBe('reload');
+    // L1: the page still runs on the old worker, nothing forces a reload; a paused session would be lost.
+    expect(updateStep('applying', { ...idle, liveSession: true }, true)).toBe('defer');
     expect(updateStep('applying', { ...idle, playing: true }, true)).toBe('defer');
     expect(updateStep('applying', { ...idle, storing: true }, true)).toBe('defer');
   });
