@@ -33,6 +33,11 @@ export interface ChunkSource {
   contentType: string;
   /** Strong validator of these exact bytes, sent as ETag and checked against If-Range. */
   etag?: string;
+  /**
+   * Called when a response stream opens; the returned function when it ends, fails or is
+   * cancelled. Lets the service worker keep a replaced copy until nobody reads it.
+   */
+  retain?(): () => void;
   readChunk(index: number): Promise<Uint8Array>;
 }
 
@@ -56,23 +61,41 @@ function ifRangeAllows(ifRange: string | null | undefined, etag: string | undefi
  */
 export function rangeStream(src: ChunkSource, start: number, end: number): ReadableStream<Uint8Array> {
   let pos = start;
+  let release: (() => void) | undefined;
+  const finish = () => {
+    release?.();
+    release = undefined;
+  };
   return new ReadableStream<Uint8Array>({
+    start() {
+      release = src.retain?.();
+    },
     async pull(controller) {
-      if (pos > end) {
-        controller.close();
-        return;
+      try {
+        if (pos > end) {
+          controller.close();
+          finish();
+          return;
+        }
+        const index = Math.floor(pos / src.chunkSize);
+        const chunkStart = index * src.chunkSize;
+        const chunk = await src.readChunk(index);
+        const from = pos - chunkStart;
+        const to = Math.min(chunk.length, end - chunkStart + 1);
+        if (to <= from) {
+          controller.error(new Error(`chunk ${index} is shorter than expected`));
+          finish();
+          return;
+        }
+        controller.enqueue(chunk.subarray(from, to));
+        pos = chunkStart + to;
+      } catch (e) {
+        finish();
+        throw e;
       }
-      const index = Math.floor(pos / src.chunkSize);
-      const chunkStart = index * src.chunkSize;
-      const chunk = await src.readChunk(index);
-      const from = pos - chunkStart;
-      const to = Math.min(chunk.length, end - chunkStart + 1);
-      if (to <= from) {
-        controller.error(new Error(`chunk ${index} is shorter than expected`));
-        return;
-      }
-      controller.enqueue(chunk.subarray(from, to));
-      pos = chunkStart + to;
+    },
+    cancel() {
+      finish();
     },
   });
 }

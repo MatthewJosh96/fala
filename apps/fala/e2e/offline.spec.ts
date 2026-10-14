@@ -183,6 +183,32 @@ test('coming back online refreshes the catalogue without a reload (F9)', async (
   await expect(page.getByTestId('download')).toBeVisible();
 });
 
+test('coming back online keeps the session on the track it plays (R4)', async ({ page, context }) => {
+  // Only the second Focus track is stored; preferences are the defaults.
+  await openApp(page, '#/pobrane');
+  const pulse = page.getByTestId('track-card').filter({ hasText: TRACKS.pulse.title });
+  await pulse.getByRole('button', { name: 'Pobierz' }).click();
+  await expect(pulse.getByTestId('offline-badge')).toHaveText(/Dostępne offline/, { timeout: 60_000 });
+
+  await context.setOffline(true);
+  await page.reload();
+  await goHash(page, '#/');
+  await modeCard(page, 'Skupienie').click();
+  await expectPlaying(page);
+  expect((await audioState(page)).src).toContain(TRACKS.pulse.file);
+
+  await context.setOffline(false);
+  // The full catalogue is back: both tracks are offered again…
+  await expect(page.getByRole('group', { name: 'Utwór' }).getByRole('radio')).toHaveCount(2);
+  await page.waitForTimeout(1_000);
+  // …but the running session keeps its file; only an explicit choice changes it.
+  const s = await audioState(page);
+  expect(s.src).toContain(TRACKS.pulse.file);
+  expect(s.paused).toBe(false);
+  await expect(page.locator('.track-title')).toHaveText(TRACKS.pulse.title);
+  await expect(page.getByRole('radio', { name: TRACKS.pulse.title })).toBeChecked();
+});
+
 test('an unknown path under /fala/ (GitHub Pages 404 page) returns to the app and keeps the screen', async ({ page }) => {
   await page.goto(`${BASE}404.html#/sen`);
   await expect(page).toHaveURL(new RegExp(`${BASE}#/sen$`));

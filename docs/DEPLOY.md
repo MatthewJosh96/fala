@@ -105,6 +105,22 @@ Odtwarzanie przy zablokowanym ekranie to osobny test (`docs/ACCEPTANCE.md`).
 - **Przed pushem lokalnie:** `cd apps/fala && npm test && npm run test:e2e` (e2e nie biegnie w CI: wymaga
   renderów i przeglądarki).
 
+### Jak telefon przyjmuje nową wersję
+
+Aplikacja sama decyduje, kiedy przejść na nową wersję (`registerType: 'prompt'`, w `sw.ts` nie ma
+`skipWaiting`). Nowy Service Worker instaluje się w tle i czeka.
+
+- Gdy nic nie gra, nic się nie pobiera ani nie sprawdza i nie ma rozpoczętej sesji, aplikacja przełącza się
+  sama i przeładowuje stronę (zwykle w kilka sekund po uruchomieniu).
+- Gdy sesja jest wstrzymana w połowie, na ekranie głównym pojawia się „Dostępna aktualizacja ·
+  Zaktualizuj”. Stuknięcie przeładowuje aplikację, a wstrzymana sesja przepada.
+- W trakcie odtwarzania albo pobierania aktualizacja czeka do końca, a zamiast przycisku jest dopisek
+  „po zatrzymaniu dźwięku”.
+- Gdy przejęcie nie nastąpi w 10 s (np. inne okno aplikacji wciąż gra ze starej wersji), strona przeładuje
+  się dopiero wtedy, gdy nic w niej nie gra i nic się nie pobiera.
+- Zamknięcie wszystkich okien aplikacji też kończy czekanie: przy następnym uruchomieniu działa już nowa
+  wersja.
+
 ## 6. Lokalnie, bez wdrożenia
 
 ```sh
@@ -119,5 +135,5 @@ npm run build && npm run preview     # http://localhost:4317/fala/
 - Poprzednia wersja: `gh run rerun <id-udanego-przebiegu> --repo MatthewJosh96/fala` (przebieg buduje
   swój commit) albo `git revert` + push.
 - Zdjęcie strony: `gh api -X DELETE repos/MatthewJosh96/fala/pages`.
-- Zainstalowane PWA zaktualizują się przy następnym uruchomieniu online (`registerType: autoUpdate`).
-  Pobrane nagrania zostają na telefonach.
+- Wycofana wersja dociera do zainstalowanych PWA tak samo jak każda aktualizacja (punkt „Jak telefon
+  przyjmuje nową wersję”). Pobrane nagrania zostają na telefonach.

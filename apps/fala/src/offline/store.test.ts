@@ -9,7 +9,9 @@ import {
   getStoredMeta,
   listStored,
   metaKey,
+  recoverAbandoned,
   removeTrack,
+  ReaderRegistry,
   storageReport,
   verifyStored,
   type Progress,
@@ -156,6 +158,8 @@ describe('verifyStored and removeTrack', () => {
     const caches = new FakeCaches();
     await downloadTrack(track, { caches, fetchFn: fetchOf(bytes), chunkSize: CHUNK });
     await removeTrack(caches, track.url);
+    // The bytes are retired, then freed once no response reads them (the service worker's job).
+    await recoverAbandoned(caches, { readers: { isOpen: () => false } });
     expect((await caches.open(CACHE_NAME)).entries.size).toBe(0);
     expect(await getStoredMeta(caches, track.url)).toBeNull();
     expect(await verifyStored(caches, track.url)).toEqual({ ok: false, reason: 'plik nie jest pobrany' });
@@ -218,6 +222,7 @@ describe('several pages at once (Web Locks)', () => {
     await first;
     expect(await verifyStored(caches, track.url)).toEqual({ ok: true });
     await removeTrack(caches, track.url, { locks });
+    await recoverAbandoned(caches, { locks, readers: { isOpen: () => false } });
     expect((await caches.open(CACHE_NAME)).entries.size).toBe(0);
   });
 
@@ -273,5 +278,138 @@ describe('abandoned downloads', () => {
     await running;
     expect(await verifyStored(caches, track.url)).toEqual({ ok: true });
     expect(await storageReport(caches)).toEqual({ stored: track.size, partial: 0 });
+  });
+});
+
+/** What the service worker knows: open response streams per attempt (test stand-in). */
+function openReaders() {
+  const open = new Map<string, number>();
+  return {
+    retain(attempt: string) {
+      open.set(attempt, (open.get(attempt) ?? 0) + 1);
+      let done = false;
+      return () => {
+        if (done) return;
+        done = true;
+        open.set(attempt, open.get(attempt)! - 1);
+      };
+    },
+    isOpen: (attempt: string) => (open.get(attempt) ?? 0) > 0,
+  };
+}
+
+async function readAll(reader: ReadableStreamDefaultReader<Uint8Array>, first: Uint8Array[] = []) {
+  const parts = [...first];
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) return Buffer.concat(parts);
+    parts.push(value);
+  }
+}
+
+describe('commit and generations (re-review)', () => {
+  it('a clean-up failure after the commit never destroys the committed copy (R1)', async () => {
+    const { bytes, track } = fixture();
+    const caches = new FakeCaches();
+    const locks = new FakeLocks();
+    const cache = await caches.open(CACHE_NAME);
+    cache.failDelete = (k) => k.includes('/__fala/attempt/');
+    await downloadTrack(track, { caches, locks, fetchFn: fetchOf(bytes), chunkSize: CHUNK }).catch(() => undefined);
+    expect(await verifyStored(caches, track.url)).toEqual({ ok: true });
+    // The leftover record is retried at the next listing.
+    await loadCatalogue(caches, '/', noIndex, locks);
+    expect([...cache.entries.keys()].filter((k) => k.includes('/__fala/attempt/'))).toEqual([]);
+    expect(await verifyStored(caches, track.url)).toEqual({ ok: true });
+  });
+
+  it('downloading a file whose identical copy is already stored reuses it without fetching (R2a)', async () => {
+    const { bytes, track } = fixture();
+    const caches = new FakeCaches();
+    const locks = new FakeLocks();
+    const first = await downloadTrack(track, { caches, locks, fetchFn: fetchOf(bytes), chunkSize: CHUNK });
+    let fetches = 0;
+    const counting = (async (...args: Parameters<typeof fetch>) => {
+      fetches++;
+      return fetchOf(bytes)(...args);
+    }) as typeof fetch;
+    const again = await downloadTrack(track, { caches, locks, fetchFn: counting, chunkSize: CHUNK });
+    expect(fetches).toBe(0);
+    expect(again.attempt).toBe(first.attempt);
+    expect(await verifyStored(caches, track.url)).toEqual({ ok: true });
+  });
+
+  it('an open Range response reads the old copy to the end while it is replaced; then it is reclaimed (R2b)', async () => {
+    const v1 = fixture();
+    const v2bytes = pseudoRandomBytes(v1.track.size, 77);
+    const v2 = { ...v1.track, sha256: createHash('sha256').update(v2bytes).digest('hex') };
+    const caches = new FakeCaches();
+    const locks = new FakeLocks();
+    const readers = openReaders();
+    const meta1 = await downloadTrack(v1.track, { caches, locks, fetchFn: fetchOf(v1.bytes), chunkSize: CHUNK });
+    const cache = await caches.open(CACHE_NAME);
+
+    const res = buildMediaResponse(chunkSource(cache, meta1, 1, readers), 'bytes=0-');
+    const reader = res.body!.getReader();
+    const head = await reader.read();
+
+    await downloadTrack(v2, { caches, locks, fetchFn: fetchOf(v2bytes), chunkSize: CHUNK });
+    await loadCatalogue(caches, '/', noIndex, locks, readers); // recovery must respect the open reader
+    expect(await readAll(reader, [head.value!])).toEqual(Buffer.from(v1.bytes));
+
+    await loadCatalogue(caches, '/', noIndex, locks, readers); // reader closed: the old generation goes
+    expect(await keysFor(caches, v1.track.url).then((ks) => ks.filter((k) => k.includes(meta1.attempt)))).toEqual([]);
+    expect(await verifyStored(caches, v1.track.url)).toEqual({ ok: true });
+    expect(await storageReport(caches)).toEqual({ stored: v1.track.size, partial: 0 });
+  });
+
+  it('removing a file never pulls the bytes from under an open response (R2b)', async () => {
+    const { bytes, track } = fixture();
+    const caches = new FakeCaches();
+    const locks = new FakeLocks();
+    const readers = openReaders();
+    const meta = await downloadTrack(track, { caches, locks, fetchFn: fetchOf(bytes), chunkSize: CHUNK });
+    const cache = await caches.open(CACHE_NAME);
+    const reader = buildMediaResponse(chunkSource(cache, meta, 1, readers), 'bytes=0-').body!.getReader();
+    const head = await reader.read();
+
+    await removeTrack(caches, track.url, { locks });
+    expect(await listStored(caches)).toEqual([]);
+    await loadCatalogue(caches, '/', noIndex, locks, readers);
+    expect(await readAll(reader, [head.value!])).toEqual(Buffer.from(bytes));
+
+    await loadCatalogue(caches, '/', noIndex, locks, readers);
+    expect(cache.entries.size).toBe(0);
+  });
+});
+
+describe('ReaderRegistry (service worker side)', () => {
+  it('counts open streams per attempt and reports when the last one closes', () => {
+    let idle = 0;
+    const r = new ReaderRegistry(() => idle++);
+    const a = r.retain('x');
+    const b = r.retain('x');
+    expect(r.isOpen('x')).toBe(true);
+    a();
+    a(); // releasing twice counts once
+    expect(r.isOpen('x')).toBe(true);
+    b();
+    expect(r.isOpen('x')).toBe(false);
+    expect(idle).toBe(1);
+    r.begin('/p');
+    expect(r.isPending('/p')).toBe(true);
+    r.end('/p');
+    expect(r.isPending('/p')).toBe(false);
+  });
+
+  it('a cancelled response stream releases its reader', async () => {
+    const { bytes, track } = fixture();
+    const caches = new FakeCaches();
+    const meta = await downloadTrack(track, { caches, fetchFn: fetchOf(bytes), chunkSize: CHUNK });
+    const r = new ReaderRegistry();
+    const reader = buildMediaResponse(chunkSource(await caches.open(CACHE_NAME), meta, 3, r), 'bytes=0-').body!.getReader();
+    await reader.read();
+    expect(r.isOpen(meta.attempt)).toBe(true);
+    await reader.cancel();
+    expect(r.isOpen(meta.attempt)).toBe(false);
   });
 });

@@ -27,10 +27,18 @@ export const canUpdateNow = (a: Activity) => !a.playing && !a.storing;
 
 const idle = (a: Activity) => canUpdateNow(a) && !a.liveSession;
 
-export function updateStep(state: UpdateState, a: Activity): UpdateStep {
+/**
+ * The one policy for every reload. `stalled`: the takeover we asked for has not happened in
+ * time (another page may hold the old worker); reloading this page frees our side of it, but
+ * only if, at that moment, nothing plays and nothing is being stored.
+ */
+export function updateStep(state: UpdateState, a: Activity, stalled = false): UpdateStep {
   switch (state) {
     case 'waiting':
       return idle(a) ? 'apply' : 'defer';
+    case 'applying':
+      if (!stalled) return 'none';
+      return canUpdateNow(a) ? 'reload' : 'defer';
     case 'activated':
       return canUpdateNow(a) ? 'reload' : 'defer';
     case 'controlling':

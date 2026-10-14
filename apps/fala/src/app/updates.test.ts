@@ -51,4 +51,12 @@ describe('service worker updates wait for a quiet moment', () => {
     s.markControlling();
     expect(s.get()).toBe('controlling');
   });
+
+  it('a takeover that stalls reloads only when nothing plays or stores, re-checked when the fallback fires (R3)', () => {
+    expect(updateStep('applying', idle, false)).toBe('none');
+    expect(updateStep('applying', idle, true)).toBe('reload');
+    expect(updateStep('applying', { ...idle, liveSession: true }, true)).toBe('reload');
+    expect(updateStep('applying', { ...idle, playing: true }, true)).toBe('defer');
+    expect(updateStep('applying', { ...idle, storing: true }, true)).toBe('defer');
+  });
 });

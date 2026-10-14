@@ -28,6 +28,26 @@ import { PlayerScreen } from './ui/PlayerScreen';
 const BASE = import.meta.env.BASE_URL;
 const browserCaches = () => window.caches as unknown as CachesLike;
 
+/**
+ * Asks the service worker to free replaced or removed copies that no stream reads any more;
+ * resolves when it answers (or after 3 s). Without service worker support nothing can be
+ * streaming from storage, so the page frees them itself while listing (NO_READERS).
+ */
+function requestCollection(): Promise<void> {
+  const sw = navigator.serviceWorker?.controller;
+  if (!sw) return Promise.resolve();
+  return new Promise((resolve) => {
+    const channel = new MessageChannel();
+    const timer = setTimeout(resolve, 3_000);
+    channel.port1.onmessage = () => {
+      clearTimeout(timer);
+      resolve();
+    };
+    sw.postMessage({ type: 'FALA_GC' }, [channel.port2]);
+  });
+}
+const NO_READERS = { isOpen: () => false };
+
 interface Session {
   mode: Mode;
   timer: TimerState;
@@ -37,6 +57,11 @@ interface Session {
    * changing the tempo restarts it.
    */
   pacer: TimerState;
+  /**
+   * The file this session plays, fixed when it starts (or once the catalogue first offers
+   * one). A refreshed catalogue (e.g. back online) never swaps it; only the user does.
+   */
+  fileUrl: string | null;
   finished: boolean;
   startRate: number;
 }
@@ -111,7 +136,8 @@ export function App({ player }: { player: Player }) {
       latestOnly(
         async () => {
           const caches = browserCaches();
-          const cat = await loadCatalogue(caches, BASE);
+          await requestCollection();
+          const cat = await loadCatalogue(caches, BASE, fetch, undefined, 'serviceWorker' in navigator ? undefined : NO_READERS);
           return { cat, usage: await storageReport(caches).catch(() => null) };
         },
         ({ cat, usage }) => {
@@ -187,14 +213,18 @@ export function App({ player }: { player: Player }) {
     const t = modeTrack(mode);
     return t ? pickFile(t) : null;
   };
-  const sessionFile = session ? modeFile(session.mode) : null;
-  const diagFile = diagUrl ? (allFiles(catalogue.tracks).find((f) => f.url === diagUrl) ?? null) : null;
+  const findFile = (url: string) => allFiles(catalogue.tracks).find((f) => f.url === url) ?? null;
+  const sessionFile = session ? (session.fileUrl ? findFile(session.fileUrl) : modeFile(session.mode)) : null;
+  const diagFile = diagUrl ? findFile(diagUrl) : null;
 
-  // Late load: the catalogue or the SW became ready after the session was opened.
+  // Late load: the catalogue or the SW became ready after the session was opened. A pinned
+  // file only reloads into the player as itself (same src keeps playing), never as another.
   useEffect(() => {
     if (!swControls) return;
-    if (session && sessionFile) player.load(toTrackMeta(sessionFile, MODE_LABEL[session.mode], true));
-    else if (!session && diagFile) player.load(toTrackMeta(diagFile, 'Odtwarzacz testowy', false));
+    if (session && sessionFile) {
+      player.load(toTrackMeta(sessionFile, MODE_LABEL[session.mode], true));
+      if (!session.fileUrl) setSession((s) => (s && !s.fileUrl ? { ...s, fileUrl: sessionFile.url } : s));
+    } else if (!session && diagFile) player.load(toTrackMeta(diagFile, 'Odtwarzacz testowy', false));
   }, [session?.mode, sessionFile?.url, diagFile?.url, swControls, player]);
 
   // The countdown runs while audio really advances, whatever started it (screen, lock
@@ -244,6 +274,7 @@ export function App({ player }: { player: Player }) {
       mode,
       timer: keepsPlaying ? startTimer(createTimer(minutes), t) : createTimer(minutes),
       pacer: newClock(keepsPlaying, t),
+      fileUrl: file?.url ?? null,
       finished: false,
       startRate: prefs.relax.startRate,
     });
@@ -258,7 +289,7 @@ export function App({ player }: { player: Player }) {
 
   const onToggle = (mode: Mode) => {
     if (session?.mode !== mode) return startMode(mode, true);
-    const file = modeFile(mode);
+    const file = sessionFile;
     if (!file || !swControls) return;
     if (state.track?.src !== file.url) {
       player.load(toTrackMeta(file, MODE_LABEL[mode], true));
@@ -284,6 +315,7 @@ export function App({ player }: { player: Player }) {
     const file = track ? pickFile(track) : null;
     if (!file) return;
     const wasPlaying = playing;
+    setSession({ ...session, fileUrl: file.url });
     player.load(toTrackMeta(file, MODE_LABEL.focus, true));
     if (wasPlaying) void player.play();
   };
@@ -374,7 +406,7 @@ export function App({ player }: { player: Player }) {
 
   const view = (mode: Mode): SessionView => {
     const active = session?.mode === mode ? session : null;
-    const file = modeFile(mode);
+    const file = active ? sessionFile : modeFile(mode);
     const timer = active?.timer ?? createTimer(prefs[mode].minutes);
     return {
       playing: active !== null && playing,
@@ -398,23 +430,33 @@ export function App({ player }: { player: Player }) {
     storing: Object.values(ops).some((o) => o.kind === 'downloading' || o.kind === 'verifying'),
     liveSession: session !== null && !session.finished && (playing || elapsedMs(session.timer, now) > 0),
   };
+  const activityRef = useRef(activity);
+  activityRef.current = activity;
   const applyUpdate = useCallback(() => {
-    if (updates.get() !== 'waiting') return location.reload();
+    if (updates.get() !== 'waiting') {
+      // Same rule as every other reload: never over sound or storage work.
+      if (canUpdateNow(activityRef.current)) location.reload();
+      return;
+    }
     // An open media request keeps the old worker busy and the new one waiting; release it.
     player.unload();
     updates.apply();
   }, [player]);
-  const step = updateStep(update, activity);
+  // The takeover we asked for may stall (another page holds the old worker). After 10 s a
+  // reload of this page frees our side of it, but only through updateStep, i.e. judged on
+  // the activity at that moment: playback or a download started meanwhile defers it.
+  const [handoffStalled, setHandoffStalled] = useState(false);
+  useEffect(() => {
+    setHandoffStalled(false);
+    if (update !== 'applying') return;
+    const id = setTimeout(() => setHandoffStalled(true), 10_000);
+    return () => clearTimeout(id);
+  }, [update]);
+  const step = updateStep(update, activity, handoffStalled);
   useEffect(() => {
     if (step === 'apply') applyUpdate();
     else if (step === 'reload') location.reload();
   }, [step, applyUpdate]);
-  useEffect(() => {
-    if (update !== 'applying') return;
-    // Another page may still hold the old worker; reloading this one frees our side of it.
-    const id = setTimeout(() => location.reload(), 10_000);
-    return () => clearTimeout(id);
-  }, [update]);
 
   let resume: ResumeChip | null = null;
   if (session && !session.finished && (playing || elapsedMs(session.timer, now) > 0)) {
@@ -447,7 +489,7 @@ export function App({ player }: { player: Player }) {
           <FocusScreen
             view={view('focus')}
             tracks={tracksForMode(catalogue.tracks, 'focus')}
-            trackId={modeTrack('focus')?.id ?? null}
+            trackId={(session?.mode === 'focus' ? sessionFile?.trackId : null) ?? modeTrack('focus')?.id ?? null}
             onTrack={onFocusTrack}
           />
         )}

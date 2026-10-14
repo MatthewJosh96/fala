@@ -80,3 +80,23 @@ test('a paused session keeps its state; the home screen offers the update instea
   expect(await hasWaitingWorker(page)).toBe(false);
   await expect(page.getByTestId('update')).toHaveCount(0);
 });
+
+test('if the takeover stalls, the 10 s fallback never reloads a page that started playing meanwhile (R3)', async ({ context }) => {
+  // Page B keeps a stream open on the old worker, so Chromium holds the new one back.
+  const b = await context.newPage();
+  await openApp(b);
+  await modeCard(b, 'Skupienie').click();
+  await expectPlaying(b);
+
+  const a = await context.newPage();
+  await openApp(a);
+  const loadsA = countLoads(a);
+  await publishNewWorker(a);
+  await expect(a.getByTestId('update')).toContainText('Aktualizuję', { timeout: 20_000 }); // A was idle: it applied
+
+  await modeCard(a, 'Skupienie').click();
+  await expectPlaying(a);
+  await a.waitForTimeout(11_000);
+  expect(loadsA(), 'the fallback reloaded a playing page').toBe(0);
+  expect((await audioState(a)).paused).toBe(false);
+});

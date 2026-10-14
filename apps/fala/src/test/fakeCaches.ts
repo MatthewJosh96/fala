@@ -5,6 +5,8 @@ export class FakeCache implements CacheLike {
   readonly entries = new Map<string, { body: Uint8Array; headers: [string, string][]; status: number }>();
   puts = 0;
   failPutAfter = Infinity;
+  /** One-shot fault injection: the first delete of a matching key throws. */
+  failDelete: ((key: string) => boolean) | null = null;
 
   async match(key: string) {
     const e = this.entries.get(key);
@@ -22,6 +24,10 @@ export class FakeCache implements CacheLike {
     this.entries.set(key, { body, headers: [...res.headers.entries()], status: res.status });
   }
   async delete(key: string) {
+    if (this.failDelete?.(key)) {
+      this.failDelete = null;
+      throw new Error('delete failed');
+    }
     return this.entries.delete(key);
   }
   async keys() {

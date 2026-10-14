@@ -1,5 +1,13 @@
 import { isMode, parseMediaIndex, type MediaIndex, type Mode } from './mediaIndex';
-import { listStored, recoverAbandoned, type CachesLike, type LockManagerLike, type StoredMeta, type TrackInfo } from './store';
+import {
+  listStored,
+  recoverAbandoned,
+  type CachesLike,
+  type LockManagerLike,
+  type OpenReaders,
+  type StoredMeta,
+  type TrackInfo,
+} from './store';
 
 export interface CatalogueFile extends TrackInfo {
   trackId: string;
@@ -104,8 +112,10 @@ export async function loadCatalogue(
   base: string,
   fetchFn: typeof fetch = fetch,
   locks?: LockManagerLike | null,
+  /** Only where every open reader is known (no service worker at all): also frees retired copies. */
+  readers?: OpenReaders,
 ): Promise<Catalogue> {
-  const storedNow = recoverAbandoned(caches, { locks })
+  const storedNow = recoverAbandoned(caches, { locks, readers })
     .catch(() => undefined)
     .then(() => listStored(caches))
     .catch(() => []);

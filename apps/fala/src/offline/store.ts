@@ -19,6 +19,11 @@ import { strongEtag, type ChunkSource } from './range';
  * Several pages (tabs, the installed app) share this storage. Downloads, removal and the
  * clean-up of abandoned attempts take a per-file Web Lock; without the Web Locks API only
  * this page is protected against a second attempt (other pages are not).
+ *
+ * A copy that is replaced or removed is not deleted at once: it gets a "retired" record and
+ * stays until no response stream reads it (a range like bytes=N- can stay open for hours).
+ * Only the service worker knows its open streams, so only it frees retired copies
+ * (collectRetired); page-side recovery never touches them.
  */
 
 export const CACHE_NAME = 'fala-media-v1';
@@ -86,12 +91,14 @@ const enc = (path: string) => encodeURIComponent(path);
 export const metaKey = (path: string) => `/__fala/meta/${enc(path)}`;
 export const chunkKey = (path: string, attempt: string, i: number) => `/__fala/chunk/${enc(path)}/${attempt}/${i}`;
 export const attemptKey = (attempt: string) => `/__fala/attempt/${attempt}`;
+export const retiredKey = (attempt: string) => `/__fala/retired/${attempt}`;
 const lockName = (path: string) => `fala-media:${path}`;
 
 type ParsedKey =
   | { kind: 'meta'; path: string }
   | { kind: 'chunk'; path: string; attempt: string }
   | { kind: 'attempt'; attempt: string }
+  | { kind: 'retired'; attempt: string }
   | { kind: 'other' };
 
 /** Cache keys come back as absolute URLs in browsers. */
@@ -110,6 +117,7 @@ function parseKey(url: string): ParsedKey {
       return { kind: 'chunk', path: decodeURIComponent(parts[3]), attempt: parts.length === 6 ? parts[4] : '' };
     }
     if (parts[2] === 'attempt' && parts.length === 4) return { kind: 'attempt', attempt: parts[3] };
+    if (parts[2] === 'retired' && parts.length === 4) return { kind: 'retired', attempt: parts[3] };
   } catch {
     // undecodable segment
   }
@@ -154,6 +162,58 @@ async function readJson(cache: CacheLike, key: string): Promise<unknown> {
 }
 
 const json = (value: unknown) => new Response(JSON.stringify(value), { headers: { 'Content-Type': 'application/json' } });
+
+/** Attempt and retired records: { path, ... }; anything else is unreadable. */
+async function readRecordPath(cache: CacheLike, key: string): Promise<string | null> {
+  const rec = (await readJson(cache, key)) as { path?: unknown } | null | undefined;
+  return rec && typeof rec.path === 'string' ? rec.path : null;
+}
+
+/** What the service worker knows about its open response streams. */
+export interface OpenReaders {
+  isOpen(attempt: string): boolean;
+  /** A request for this path is between reading the meta and opening its stream. */
+  isPending?(path: string): boolean;
+}
+
+export interface ReaderTracker extends OpenReaders {
+  retain(attempt: string): () => void;
+}
+
+/** Open response streams per attempt, kept by the service worker. */
+export class ReaderRegistry implements ReaderTracker {
+  private open = new Map<string, number>();
+  private pending = new Map<string, number>();
+  constructor(private readonly onIdle: () => void = () => undefined) {}
+  retain(attempt: string) {
+    this.open.set(attempt, (this.open.get(attempt) ?? 0) + 1);
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      const n = (this.open.get(attempt) ?? 1) - 1;
+      if (n > 0) this.open.set(attempt, n);
+      else {
+        this.open.delete(attempt);
+        this.onIdle();
+      }
+    };
+  }
+  isOpen(attempt: string) {
+    return this.open.has(attempt);
+  }
+  begin(path: string) {
+    this.pending.set(path, (this.pending.get(path) ?? 0) + 1);
+  }
+  end(path: string) {
+    const n = (this.pending.get(path) ?? 1) - 1;
+    if (n > 0) this.pending.set(path, n);
+    else this.pending.delete(path);
+  }
+  isPending(path: string) {
+    return this.pending.has(path);
+  }
+}
 
 async function readMeta(cache: CacheLike, path: string): Promise<StoredMeta | null> {
   return parseStoredMeta(await readJson(cache, metaKey(path)));
@@ -215,21 +275,67 @@ async function deleteAttempt(cache: CacheLike, path: string, attempt: string) {
 
 /**
  * Only while holding the file's lock (so no attempt for it is running): keeps the chunks of
- * the committed copy and deletes every other chunk and attempt record of that file.
+ * the committed copy and of retired copies (they may still be read; collectRetired frees
+ * them) and deletes every other chunk and attempt record of that file.
  * A meta that does not parse (older layout) is not a usable copy and goes too.
  */
 async function sweepPath(cache: CacheLike, path: string) {
   const raw = await readJson(cache, metaKey(path));
   const meta = parseStoredMeta(raw);
   if (raw !== undefined && !meta) await cache.delete(metaKey(path));
-  const keep = meta?.attempt;
+  const keys = await cache.keys();
+  const keep = new Set<string>(meta ? [meta.attempt] : []);
+  for (const k of keys) {
+    const key = parseKey(k.url);
+    if (key.kind === 'retired' && (await readRecordPath(cache, k.url)) === path) keep.add(key.attempt);
+  }
+  for (const k of keys) {
+    const key = parseKey(k.url);
+    if (key.kind === 'chunk' && key.path === path && !keep.has(key.attempt)) await cache.delete(k.url);
+    if (key.kind === 'attempt') {
+      const recPath = await readRecordPath(cache, k.url);
+      if (recPath === null || recPath === path) await cache.delete(k.url);
+    }
+  }
+}
+
+/** Runs fn under the file's lock if it is free right now; returns false if it was busy. */
+async function ifFree(locks: LockManagerLike | null, path: string, fn: () => Promise<void>): Promise<boolean> {
+  if (locks) return locks.request(lockName(path), { ifAvailable: true }, async (lock) => (lock ? (await fn(), true) : false));
+  if (localBusy.has(path)) return false;
+  localBusy.add(path);
+  try {
+    await fn();
+    return true;
+  } finally {
+    localBusy.delete(path);
+  }
+}
+
+/**
+ * Frees retired copies nobody reads any more. Called by the service worker (which knows
+ * its open streams) when a stream closes, on request and when it starts; by a page only
+ * where no service worker can exist. A copy that is busy (lock held) waits for the next run.
+ */
+export async function collectRetired(cache: CacheLike, readers: OpenReaders, locks: LockManagerLike | null = resolveLocks(undefined)) {
   for (const k of await cache.keys()) {
     const key = parseKey(k.url);
-    if (key.kind === 'chunk' && key.path === path && key.attempt !== keep) await cache.delete(k.url);
-    if (key.kind === 'attempt') {
-      const rec = (await readJson(cache, k.url)) as { path?: unknown } | null | undefined;
-      if (!rec || typeof rec.path !== 'string' || rec.path === path) await cache.delete(k.url);
+    if (key.kind !== 'retired') continue;
+    const path = await readRecordPath(cache, k.url);
+    if (path === null) {
+      await cache.delete(k.url);
+      continue;
     }
+    await ifFree(locks, path, async () => {
+      // Retired but still committed: the commit that was to replace it failed.
+      if ((await readMeta(cache, path))?.attempt === key.attempt) return void (await cache.delete(k.url));
+      if (readers.isOpen(key.attempt) || readers.isPending?.(path)) return;
+      for (const c of await cache.keys()) {
+        const ck = parseKey(c.url);
+        if (ck.kind === 'chunk' && ck.path === path && ck.attempt === key.attempt) await cache.delete(c.url);
+      }
+      await cache.delete(k.url); // record last: chunks without any record are plain garbage
+    });
   }
 }
 
@@ -238,15 +344,29 @@ async function sweepPath(cache: CacheLike, path: string) {
  * clean up. Runs at start-up and whenever the catalogue is listed; files another page is
  * working on (lock held) are skipped.
  */
-export async function recoverAbandoned(caches: CachesLike, opts: { locks?: LockManagerLike | null } = {}): Promise<void> {
+export async function recoverAbandoned(
+  caches: CachesLike,
+  opts: {
+    locks?: LockManagerLike | null;
+    /** Only where the caller knows every open reader (the service worker, or no SW at all). */
+    readers?: OpenReaders;
+  } = {},
+): Promise<void> {
   const locks = resolveLocks(opts.locks);
   const cache = await caches.open(CACHE_NAME);
+  await reclaim(cache, locks);
+  if (opts.readers) await collectRetired(cache, opts.readers, locks);
+}
+
+async function reclaim(cache: CacheLike, locks: LockManagerLike | null): Promise<void> {
   const committed = new Map<string, string | null>();
+  const retired = new Set<string>();
   const chunkAttempts = new Map<string, Set<string>>();
   const records: { key: string; attempt: string; path?: string; startedAt?: string }[] = [];
   for (const k of await cache.keys()) {
     const key = parseKey(k.url);
     if (key.kind === 'meta') committed.set(key.path, parseStoredMeta(await readJson(cache, k.url))?.attempt ?? null);
+    else if (key.kind === 'retired') retired.add(key.attempt);
     else if (key.kind === 'chunk') chunkAttempts.set(key.path, (chunkAttempts.get(key.path) ?? new Set()).add(key.attempt));
     else if (key.kind === 'attempt') {
       const rec = (await readJson(cache, k.url)) as { path?: unknown; startedAt?: unknown } | null | undefined;
@@ -264,7 +384,9 @@ export async function recoverAbandoned(caches: CachesLike, opts: { locks?: LockM
     for (const r of records) {
       if (!r.path || localBusy.has(r.path)) continue;
       const age = r.startedAt ? Date.now() - Date.parse(r.startedAt) : Infinity;
-      if (age > STALE_ATTEMPT_MS && committed.get(r.path) !== r.attempt) await deleteAttempt(cache, r.path, r.attempt);
+      if (age > STALE_ATTEMPT_MS && committed.get(r.path) !== r.attempt && !retired.has(r.attempt)) {
+        await deleteAttempt(cache, r.path, r.attempt);
+      }
     }
     return;
   }
@@ -272,7 +394,7 @@ export async function recoverAbandoned(caches: CachesLike, opts: { locks?: LockM
   const dirty = new Set<string>();
   for (const [path, attempts] of chunkAttempts) {
     const keep = committed.get(path);
-    if ([...attempts].some((a) => a !== keep)) dirty.add(path);
+    if ([...attempts].some((a) => a !== keep && !retired.has(a))) dirty.add(path);
   }
   for (const [path, attempt] of committed) if (attempt === null) dirty.add(path);
   for (const r of records) {
@@ -280,13 +402,11 @@ export async function recoverAbandoned(caches: CachesLike, opts: { locks?: LockM
     else await cache.delete(r.key); // a record without a file cannot belong to anything
   }
   for (const path of dirty) {
-    await locks.request(lockName(path), { ifAvailable: true }, async (lock) => {
-      if (lock) await sweepPath(cache, path);
-    });
+    await ifFree(locks, path, () => sweepPath(cache, path));
   }
 }
 
-/** Bytes of verified copies, and of chunks that are not part of one (downloads in progress or not yet reclaimed). */
+/** Bytes of verified copies, and of chunks that are not part of one (downloads in progress, replaced copies still being read, leftovers not yet reclaimed). */
 export async function storageReport(caches: CachesLike): Promise<{ stored: number; partial: number }> {
   const cache = await caches.open(CACHE_NAME);
   const keys = await cache.keys();
@@ -316,7 +436,10 @@ export async function storageReport(caches: CachesLike): Promise<{ stored: numbe
 export async function removeTrack(caches: CachesLike, path: string, opts: { locks?: LockManagerLike | null } = {}): Promise<void> {
   await withTrackLock(resolveLocks(opts.locks), path, async () => {
     const cache = await caches.open(CACHE_NAME);
-    // Meta first: once it is gone the service worker stops serving this file from cache.
+    const meta = await readMeta(cache, path);
+    // Its bytes may still be streamed to an <audio> (here or in another window): retire them.
+    if (meta) await cache.put(retiredKey(meta.attempt), json({ path, attempt: meta.attempt, retiredAt: new Date().toISOString() }));
+    // Then the meta: once it is gone the service worker stops serving this file from cache.
     await cache.delete(metaKey(path));
     await sweepPath(cache, path);
   });
@@ -395,9 +518,16 @@ export async function downloadTrack(
   const chunkSize = opts.chunkSize ?? DEFAULT_CHUNK_SIZE;
   return withTrackLock(resolveLocks(opts.locks), track.url, async () => {
     const cache = await caches.open(CACHE_NAME);
+    const previous = await readMeta(cache, track.url);
+    // The same bytes are already stored and verified (e.g. a stale window asked again): keep them.
+    if (previous && previous.size === track.size && previous.sha256.toLowerCase() === track.sha256.toLowerCase()) {
+      return previous;
+    }
     // Holding the lock, nothing else works on this file: leftovers of dead attempts can go.
     await sweepPath(cache, track.url);
     const attempt = newAttemptId();
+    let retiredPrevious = false;
+    let meta: StoredMeta;
     try {
       await cache.put(attemptKey(attempt), json({ path: track.url, attempt, startedAt: new Date().toISOString() }));
       const res = await fetchFn(track.url, { cache: 'no-store', signal });
@@ -450,34 +580,44 @@ export async function downloadTrack(
       if (bytesToHex(hasher.digest()) !== track.sha256.toLowerCase()) {
         throw new DownloadError('sha256', 'SHA-256 pobranego pliku niezgodny');
       }
-      const meta: StoredMeta = { ...track, chunkSize, chunkCount: index, attempt, verifiedAt: '' };
+      meta = { ...track, chunkSize, chunkCount: index, attempt, verifiedAt: '' };
       const check = await verifyChunks(cache, meta, onProgress);
       if (!check.ok) throw new DownloadError('readback', `odczyt kontrolny: ${check.reason}`);
       meta.verifiedAt = new Date().toISOString();
+      // The copy being replaced may still be streamed: retire it before the commit, so it is
+      // never left without a record (a failed commit leaves a stale record, which is harmless).
+      if (previous) {
+        await cache.put(retiredKey(previous.attempt), json({ path: track.url, attempt: previous.attempt, retiredAt: meta.verifiedAt }));
+        retiredPrevious = true;
+      }
       // Commit: from here on the service worker serves this attempt's chunks.
       await cache.put(metaKey(track.url), json(meta));
-      // The previous copy (if any) and this attempt's record are now garbage.
-      await sweepPath(cache, track.url);
-      return meta;
     } catch (e) {
+      // Before the commit only this attempt's own chunks (and its retire mark) may go.
       await deleteAttempt(cache, track.url, attempt).catch(() => undefined);
+      if (retiredPrevious && previous) await cache.delete(retiredKey(previous.attempt)).catch(() => undefined);
       if (e instanceof DownloadError) throw e;
       if (signal?.aborted) throw new DownloadError('aborted', 'pobieranie przerwane');
       if (isQuotaError(e)) throw new DownloadError('storage', 'brak miejsca w pamięci przeglądarki');
       throw e;
     }
+    // After the commit: best-effort tidying that never touches the committed chunks. A failure
+    // leaves only the attempt record, which the next listing removes.
+    await cache.delete(attemptKey(attempt)).catch(() => undefined);
+    return meta;
   });
 }
 
 /** Chunk reader for the service worker; keeps the last few chunks because media
  * elements often issue several small ranges inside one region. */
-export function chunkSource(cache: CacheLike, meta: StoredMeta, keep = 3): ChunkSource {
+export function chunkSource(cache: CacheLike, meta: StoredMeta, keep = 3, readers?: ReaderTracker): ChunkSource {
   const recent = new Map<number, Uint8Array>();
   return {
     size: meta.size,
     chunkSize: meta.chunkSize,
     contentType: meta.contentType,
     etag: strongEtag(meta.sha256),
+    retain: readers ? () => readers.retain(meta.attempt) : undefined,
     async readChunk(i) {
       const hit = recent.get(i);
       if (hit) return hit;
