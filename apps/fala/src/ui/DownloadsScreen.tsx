@@ -1,12 +1,8 @@
 import { useEffect, useState } from 'react';
-import type { CatalogueTrack } from '../offline/catalogue';
+import type { CatalogueFile } from '../offline/catalogue';
 import type { PlaybackEvent } from '../player/types';
 import { formatClock, formatMB } from './format';
-
-export type TrackOp =
-  | { kind: 'downloading' | 'verifying'; pct: number; bytes: number }
-  | { kind: 'verified'; at: string }
-  | { kind: 'error'; message: string };
+import { TopBar, type TrackOp } from './parts';
 
 type Persist = 'unknown' | 'granted' | 'denied' | 'unsupported';
 
@@ -40,13 +36,15 @@ const PERSIST_TEXT: Record<Persist, string> = {
 };
 
 export function DownloadsScreen(props: {
-  tracks: CatalogueTrack[];
+  tracks: CatalogueFile[];
   online: boolean;
   ops: Record<string, TrackOp>;
   log: PlaybackEvent[];
-  onDownload: (t: CatalogueTrack) => void;
-  onVerify: (t: CatalogueTrack) => void;
-  onRemove: (t: CatalogueTrack) => void;
+  onDownload: (t: CatalogueFile) => void;
+  onVerify: (t: CatalogueFile) => void;
+  onRemove: (t: CatalogueFile) => void;
+  /** Plays a file without a session (diagnostic files have no mode). */
+  onPlay: (t: CatalogueFile) => void;
   onClearLog: () => void;
 }) {
   const { tracks, online, ops, log } = props;
@@ -59,7 +57,7 @@ export function DownloadsScreen(props: {
 
   return (
     <section className="downloads">
-      <h1>Pobrane</h1>
+      <TopBar title="Pobrane" />
       {!online && <p className="note">Brak połączenia — widać tylko pliki zapisane na urządzeniu.</p>}
       {!standalone && (
         <p className="note">
@@ -108,6 +106,11 @@ export function DownloadsScreen(props: {
                 {!t.stored && (
                   <button className="btn primary" disabled={busy || !online} onClick={() => props.onDownload(t)}>
                     Pobierz
+                  </button>
+                )}
+                {t.modes.length === 0 && (
+                  <button className="btn" disabled={busy} onClick={() => props.onPlay(t)}>
+                    Odtwórz
                   </button>
                 )}
                 {t.stored && (

@@ -6,12 +6,17 @@ import { VitePWA } from 'vite-plugin-pwa';
 import { mediaPlugin } from './server/mediaPlugin.ts';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const mediaDir = path.resolve(process.env.FALA_MEDIA_DIR ?? path.join(here, '../../renders/diagnostic'));
+// Staged by `npm run media:stage`; point FALA_MEDIA_DIR at renders/diagnostic for the overnight test.
+const mediaDir = path.resolve(process.env.FALA_MEDIA_DIR ?? path.join(here, '.media'));
+// GitHub Pages project site: https://matthewjosh96.github.io/fala/. Dev and preview use the
+// same path so service worker scope, manifest and media URLs are tested as deployed.
+const base = '/fala/';
 
 export default defineConfig({
+  base,
   plugins: [
     react(),
-    mediaPlugin(mediaDir),
+    mediaPlugin(mediaDir, base),
     VitePWA({
       strategies: 'injectManifest',
       srcDir: 'src',
@@ -22,22 +27,25 @@ export default defineConfig({
         rollupFormat: 'iife',
         // Manifest icons are added by the plugin itself; listing PNGs here would duplicate them.
         globPatterns: ['**/*.{js,css,html,svg}', 'icons/apple-touch-icon-180.png'],
+        globIgnores: ['404.html'],
       },
       manifest: {
         name: 'Fala',
         short_name: 'Fala',
         description: 'Dźwięk do skupienia, relaksu i snu',
         lang: 'pl',
-        start_url: '/',
-        scope: '/',
+        id: base,
+        start_url: base,
+        scope: base,
         display: 'standalone',
         orientation: 'portrait',
         background_color: '#0B0E14',
         theme_color: '#0B0E14',
         icons: [
-          { src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png' },
-          { src: '/icons/icon-512.png', sizes: '512x512', type: 'image/png' },
-          { src: '/icons/icon-maskable-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
+          // Relative to the manifest, which sits at <base>manifest.webmanifest.
+          { src: 'icons/icon-192.png', sizes: '192x192', type: 'image/png' },
+          { src: 'icons/icon-512.png', sizes: '512x512', type: 'image/png' },
+          { src: 'icons/icon-maskable-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
         ],
       },
       devOptions: { enabled: false },

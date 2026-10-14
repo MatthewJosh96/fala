@@ -9,7 +9,9 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:e2e": "playwright test",
-    "icons": "sh scripts/make-icons.sh"
+    "icons": "sh scripts/make-icons.sh",
+    "media:stage": "node --experimental-strip-types scripts/media.ts stage --catalogue ../../media/catalogue.json --root ../.. --out .media",
+    "media:index": "node --experimental-strip-types scripts/media.ts index"
   },
   "dependencies": {
     "@noble/hashes": "2.4.0",

@@ -135,10 +135,21 @@ export class HtmlAudioPlayer implements Player {
   }
 
   load(track: TrackMeta) {
-    if (this.state.track?.src === track.src) return;
+    // The browser's own loop attribute, not an 'ended' handler: the seam stays inside the media stack.
+    this.audio.loop = track.loop ?? false;
+    if (this.state.track?.src === track.src) {
+      // Same file, new session (e.g. Skupienie -> Relaks): keep playing, refresh lock-screen text only.
+      this.set({ track });
+      this.setMetadata(track);
+      return;
+    }
     this.set({ track, status: 'loading', currentTime: 0, duration: 0, error: null, waiting: false });
     this.audio.src = track.src;
     this.audio.load();
+    this.setMetadata(track);
+  }
+
+  private setMetadata(track: TrackMeta) {
     if ('mediaSession' in navigator && typeof MediaMetadata !== 'undefined') {
       navigator.mediaSession.metadata = new MediaMetadata({
         title: track.title,

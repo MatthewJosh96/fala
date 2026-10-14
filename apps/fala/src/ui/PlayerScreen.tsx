@@ -1,20 +1,23 @@
-import type { CatalogueTrack } from '../offline/catalogue';
+import type { CatalogueFile } from '../offline/catalogue';
 import type { Player, PlayerState } from '../player/types';
 import { formatClock } from './format';
+import { TopBar } from './parts';
 
 const R = 118;
 const C = 2 * Math.PI * R;
 
-export function SessionScreen({
+/*
+ * Plain player for files without a mode (the overnight diagnostic files): plays one
+ * file to its end, no loop, no timer, with a position bar. Used by docs/ACCEPTANCE.md.
+ */
+export function PlayerScreen({
   player,
   state,
   track,
-  onOpenDownloads,
 }: {
   player: Player;
   state: PlayerState;
-  track: CatalogueTrack | null;
-  onOpenDownloads: () => void;
+  track: CatalogueFile | null;
 }) {
   const duration = state.duration || track?.durationS || 0;
   const progress = duration > 0 ? Math.min(state.currentTime / duration, 1) : 0;
@@ -24,22 +27,18 @@ export function SessionScreen({
   if (!track) {
     return (
       <section className="session empty">
-        <p className="eyebrow">fala</p>
-        <h1>Brak pliku</h1>
-        <p className="muted">Serwer nie udostępnia żadnej ścieżki, a nic nie jest pobrane.</p>
-        <button className="btn" onClick={onOpenDownloads}>
-          Przejdź do „Pobrane”
-        </button>
+        <TopBar title="Odtwarzacz testowy" backHref="#/pobrane" />
+        <p className="muted">Wybierz plik w „Pobranych” i stuknij „Odtwórz”.</p>
+        <a className="btn" href="#/pobrane">
+          Przejdź do „Pobranych”
+        </a>
       </section>
     );
   }
 
   return (
     <section className={`session ${playing ? 'is-playing' : ''}`}>
-      <header className="session-head">
-        <span className="wordmark">fala</span>
-        <span className="mode">Sen · test nocny</span>
-      </header>
+      <TopBar title="Odtwarzacz testowy" backHref="#/pobrane" />
 
       <div className="ring" role="img" aria-label={`Pozostało ${formatClock(remaining)}`}>
         <svg viewBox="0 0 260 260" aria-hidden="true">
@@ -62,7 +61,7 @@ export function SessionScreen({
       </div>
 
       <div className="track">
-        <h1 className="track-title">{track.title}</h1>
+        <h2 className="track-title">{track.title}</h2>
         <p className={`availability ${track.stored ? 'ok' : ''}`} data-testid="availability">
           <span className="dot" aria-hidden="true" />
           {track.stored ? 'Dostępne offline' : 'Niepobrane — odtwarzanie z sieci'}

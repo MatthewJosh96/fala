@@ -3,67 +3,25 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import path from 'node:path';
 import type { Plugin } from 'vite';
 import { parseRange } from '../src/offline/range.ts';
+import { buildIndex, contentTypeFor } from './mediaIndex.ts';
 
 /*
- * Serves large media from a directory outside the build (FALA_MEDIA_DIR), so the
- * 460 MB test file is never copied into dist/ nor precached by Workbox.
- *   GET /media/index.json  -> catalogue built from the generator's sidecar JSON files
- *   GET /media/<file>      -> the file, with Range support (200/206/416)
+ * Serves media from a directory outside the build (FALA_MEDIA_DIR), so large files are
+ * never copied into dist/ nor precached by Workbox. Mirrors what GitHub Pages serves:
+ *   GET <base>media/index.json  -> catalogue generated from the sidecar JSON files
+ *   GET <base>media/<file>      -> the file, with Range support (200/206/416)
  */
 
-export interface CatalogueEntry {
-  id: string;
-  title: string;
-  url: string;
-  size: number;
-  sha256: string;
-  contentType: string;
-  durationS?: number;
-}
-
-const TYPES: Record<string, string> = { '.m4a': 'audio/mp4', '.mp4': 'audio/mp4', '.mp3': 'audio/mpeg' };
-
-export async function readCatalogue(dir: string): Promise<CatalogueEntry[]> {
-  let names: string[];
-  try {
-    names = await fs.readdir(dir);
-  } catch {
-    return [];
-  }
-  const out: CatalogueEntry[] = [];
-  for (const name of names.sort()) {
-    if (!name.endsWith('.json')) continue;
-    try {
-      const s = JSON.parse(await fs.readFile(path.join(dir, name), 'utf8'));
-      if (typeof s.file !== 'string' || typeof s.size !== 'number' || typeof s.sha256 !== 'string') continue;
-      const file = path.basename(s.file);
-      const stat = await fs.stat(path.join(dir, file)).catch(() => null);
-      if (!stat || stat.size !== s.size) continue;
-      out.push({
-        id: String(s.id ?? file),
-        title: String(s.title ?? file),
-        url: `/media/${encodeURIComponent(file)}`,
-        size: s.size,
-        sha256: s.sha256,
-        contentType: String(s.content_type ?? TYPES[path.extname(file)] ?? 'application/octet-stream'),
-        durationS: typeof s.duration_s === 'number' ? s.duration_s : undefined,
-      });
-    } catch {
-      // A malformed sidecar should not take the whole catalogue down.
-    }
-  }
-  return out;
-}
-
-export function mediaHandler(dir: string) {
+export function mediaHandler(dir: string, base = '/') {
+  const prefix = `${base.endsWith('/') ? base : `${base}/`}media/`;
   return async (req: IncomingMessage, res: ServerResponse, next: () => void) => {
     const url = new URL(req.url ?? '/', 'http://local');
-    if (!url.pathname.startsWith('/media/')) return next();
+    if (!url.pathname.startsWith(prefix)) return next();
     res.setHeader('Cache-Control', 'no-store');
-    const rel = decodeURIComponent(url.pathname.slice('/media/'.length));
+    const rel = decodeURIComponent(url.pathname.slice(prefix.length));
     if (rel === 'index.json') {
       res.setHeader('Content-Type', 'application/json');
-      res.end(JSON.stringify(await readCatalogue(dir)));
+      res.end(JSON.stringify(await buildIndex(dir)));
       return;
     }
     // basename() keeps requests inside the media directory.
@@ -76,7 +34,7 @@ export function mediaHandler(dir: string) {
     }
     const size = stat.size;
     res.setHeader('Accept-Ranges', 'bytes');
-    res.setHeader('Content-Type', TYPES[path.extname(file)] ?? 'application/octet-stream');
+    res.setHeader('Content-Type', contentTypeFor(file));
     const range = parseRange(req.headers.range, size);
     if (range.kind === 'unsatisfiable') {
       res.statusCode = 416;
@@ -100,14 +58,14 @@ export function mediaHandler(dir: string) {
   };
 }
 
-export function mediaPlugin(dir: string): Plugin {
+export function mediaPlugin(dir: string, base: string): Plugin {
   return {
     name: 'fala-media',
     configureServer(server) {
-      server.middlewares.use(mediaHandler(dir));
+      server.middlewares.use(mediaHandler(dir, base));
     },
     configurePreviewServer(server) {
-      server.middlewares.use(mediaHandler(dir));
+      server.middlewares.use(mediaHandler(dir, base));
     },
   };
 }

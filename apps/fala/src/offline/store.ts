@@ -20,12 +20,17 @@ export const DEFAULT_CHUNK_SIZE = 2 * 1024 * 1024;
 export interface TrackInfo {
   id: string;
   title: string;
-  /** Same-origin path, e.g. /media/fala-diag-8h.m4a */
+  /** Same-origin path, e.g. /fala/media/fala-diag-8h.m4a */
   url: string;
   size: number;
   sha256: string;
   contentType: string;
   durationS?: number;
+  // Kept in the stored meta so a downloaded file still shows up in its modes offline.
+  trackId?: string;
+  subtitle?: string;
+  modes?: string[];
+  modulation?: string;
 }
 
 export interface StoredMeta extends TrackInfo {

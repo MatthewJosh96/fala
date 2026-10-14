@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="pl">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex" />
+    <meta name="theme-color" content="#0B0E14" />
+    <title>Fala</title>
+    <style>
+      html, body { margin: 0; background: #0b0e14; color: #f1eee8; font-family: -apple-system, system-ui, sans-serif; }
+      main { max-width: 480px; margin: 0 auto; padding: 48px 24px; }
+      a { color: #f2b56b; }
+    </style>
+    <script>
+      // Screens are hash routes (#/skupienie); any other path under /fala/ goes back to the app.
+      location.replace('/fala/' + location.hash);
+    </script>
+  </head>
+  <body>
+    <main>
+      <p>Nie ma takiej strony. <a href="/fala/">Przejdź do Fali</a>.</p>
+    </main>
+  </body>
+</html>

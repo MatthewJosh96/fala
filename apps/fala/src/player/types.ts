@@ -12,6 +12,8 @@ export interface TrackMeta {
   /** URL the platform player opens; for the PWA a same-origin path served by the SW. */
   src: string;
   artwork?: { src: string; sizes: string; type: string }[];
+  /** Native element looping; sessions loop a short render until their timer ends. */
+  loop?: boolean;
 }
 
 export type PlayerStatus = 'idle' | 'loading' | 'playing' | 'paused' | 'ended' | 'error';

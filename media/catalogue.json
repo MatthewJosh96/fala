@@ -1,0 +1,39 @@
+{
+  "schema": "fala-catalogue/1",
+  "release": "media-v1",
+  "tracks": [
+    {
+      "id": "poranne-swiatlo",
+      "title": "Poranne światło",
+      "subtitle": "Smyczki i fortepian",
+      "modes": [
+        "focus",
+        "relax",
+        "sleep"
+      ],
+      "variants": [
+        {
+          "id": "poranne-swiatlo",
+          "file": "poranne-swiatlo.m4a",
+          "source": "renders/focus-a-strings-piano-v2.m4a",
+          "modulation": "none"
+        }
+      ]
+    },
+    {
+      "id": "miekki-puls",
+      "title": "Miękki puls",
+      "modes": [
+        "focus"
+      ],
+      "variants": [
+        {
+          "id": "miekki-puls",
+          "file": "miekki-puls.m4a",
+          "source": "renders/focus-b-soft-pulse.m4a",
+          "modulation": "none"
+        }
+      ]
+    }
+  ]
+}

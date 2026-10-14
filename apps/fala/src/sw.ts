@@ -32,9 +32,13 @@ async function storedSource(path: string): Promise<ChunkSource | null> {
   return src;
 }
 
+// The app lives under a sub-path on GitHub Pages (/fala/); the scope is that path.
+const BASE = new URL(self.registration.scope).pathname;
+const MEDIA = `${BASE}media/`;
+
 registerRoute(
   ({ url }) =>
-    url.origin === self.location.origin && url.pathname.startsWith('/media/') && url.pathname !== '/media/index.json',
+    url.origin === self.location.origin && url.pathname.startsWith(MEDIA) && url.pathname !== `${MEDIA}index.json`,
   async ({ request, url }) => {
     const src = await storedSource(url.pathname);
     if (src) return buildMediaResponse(src, request.headers.get('range'), request.method);
@@ -48,4 +52,4 @@ registerRoute(
   'GET',
 );
 
-registerRoute(new NavigationRoute(createHandlerBoundToURL('/index.html')));
+registerRoute(new NavigationRoute(createHandlerBoundToURL(`${BASE}index.html`), { denylist: [new RegExp(`^${MEDIA}`)] }));
