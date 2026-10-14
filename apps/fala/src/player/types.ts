@@ -41,7 +41,8 @@ export interface PlaybackEvent {
 export interface Player {
   load(track: TrackMeta): void;
   play(): Promise<void>;
-  pause(): void;
+  /** `source` is written to the playback log, so every pause can be traced to its cause. */
+  pause(source?: string): void;
   toggle(): Promise<void>;
   seek(seconds: number): void;
   /** Stops and releases the source (open requests end), e.g. before an app update. */

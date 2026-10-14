@@ -16,7 +16,8 @@ export default defineConfig({
   base,
   plugins: [
     react(),
-    mediaPlugin(mediaDir, base),
+    // FALA_E2E_SLOW_RANGES_FLAG: e2e-only switch for a slow link (see server/mediaPlugin.ts).
+    mediaPlugin(mediaDir, base, { slowRangesFlag: process.env.FALA_E2E_SLOW_RANGES_FLAG }),
     VitePWA({
       strategies: 'injectManifest',
       srcDir: 'src',

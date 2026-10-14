@@ -70,4 +70,18 @@ describe('media server under /fala/', () => {
     const res = await fetch(`${base}/fala/media/..%2F..%2Fetc%2Fpasswd`);
     expect(res.status).toBe(404);
   });
+
+  it('sends validators like GitHub Pages (ETag, Last-Modified) and honours If-Range', async () => {
+    const r1 = await fetch(`${base}/fala/media/a.m4a`, { headers: { Range: 'bytes=0-1' } });
+    const etag = r1.headers.get('etag');
+    expect(etag).toMatch(/^"[0-9a-f]+-[0-9a-f]+"$/);
+    expect(r1.headers.get('last-modified')).toMatch(/GMT$/);
+    await r1.arrayBuffer();
+    const same = await fetch(`${base}/fala/media/a.m4a`, { headers: { Range: 'bytes=0-1', 'If-Range': etag! } });
+    expect(same.status).toBe(206);
+    await same.arrayBuffer();
+    const stale = await fetch(`${base}/fala/media/a.m4a`, { headers: { Range: 'bytes=0-1', 'If-Range': '"stale"' } });
+    expect(stale.status).toBe(200);
+    expect((await stale.arrayBuffer()).byteLength).toBe(bytes.length);
+  });
 });

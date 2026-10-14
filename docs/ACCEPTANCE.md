@@ -5,7 +5,7 @@ pełny 8-godzinny plik **offline, przy zablokowanym ekranie**, bez przerw ≥10 
 systemowa → Capacitor z małym natywnym adapterem AVPlayer (UI zostaje, wymieniany jest tylko `Player`).
 
 Stan (2026-10-14): aplikacja, pliki diagnostyczne (8 h, 30 min, 120 s), detektor i skrypt nagrywania
-są gotowe i przetestowane lokalnie (Vitest 118, Playwright 20 + 2 opcjonalne: plik 8 h i zrzuty ekranów,
+są gotowe i przetestowane lokalnie (Vitest 119, Playwright 22 + 2 opcjonalne: plik 8 h i zrzuty ekranów,
 pytest 52). Aplikacja działa pod ścieżką `/fala/` (jak na GitHub Pages, `docs/DEPLOY.md`), także lokalnie.
 Plik 8 h usunięto 2026-10-14 (brak miejsca na dysku) — przed testem wygeneruj go ponownie (§3).
 **Nie wykonano**: udostępnienia telefonowi (wymaga zgody Maćka), próby generalnej z mikrofonem,
@@ -182,6 +182,9 @@ Rano
 16. Zatrzymaj nagrywanie (Ctrl+C) dopiero po końcu pliku. Odblokuj telefon, zrób zrzuty „Odtwarzacz testowy”
     i „Pobrane → Dziennik odtwarzania”. Oczekiwane: status „Plik odtworzony do końca”, w dzienniku
     `play` na starcie i jedno `pause — koniec pliku`, bez `waiting`/`stalled`/`error`/`pause` w środku.
+    Każda pauza zlecona przez aplikację ma tuż przed sobą wpis `pause-request` ze źródłem (przycisk,
+    minutnik, system — ekran blokady, słuchawki, klawisze multimedialne); `pause` bez takiego wpisu to
+    pauza z samej przeglądarki.
 17. Sprawdź log ffmpeg z nagrywania (overruny/dropy po stronie Maca unieważniają nagranie — wtedy
     powtórz noc, to nie jest wynik PWA).
 18. Analiza detektorem (§6).

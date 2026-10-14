@@ -13,3 +13,5 @@ export const TRACKS = {
 } as const;
 /** Generated tone without modes: listed in Pobrane with "Odtwórz", like the diagnostic files. */
 export const TONE = { id: 'e2e-tone', title: 'Ton testowy e2e', file: 'e2e-tone.m4a', durationS: 20 } as const;
+/** While this file exists the preview server answers Range requests slowly (256 KB/s). */
+export const SLOW_RANGES_FLAG = path.join(tmpdir(), 'fala-e2e-slow-ranges');

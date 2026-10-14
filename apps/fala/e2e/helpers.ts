@@ -46,3 +46,21 @@ export const rangeFetch = (page: Page, url: string, from: number, to: number) =>
     },
     [url, from, to] as const,
   );
+
+/** Sound keeps playing for `ms`: never paused, no media error, position never stuck > 3 s. */
+export async function expectSteadyPlayback(page: Page, ms: number) {
+  const start = Date.now();
+  let last = (await audioState(page)).t;
+  let lastAdvance = Date.now();
+  while (Date.now() - start < ms) {
+    await page.waitForTimeout(500);
+    const s = await audioState(page);
+    expect(s.paused, `playback stopped by itself at ${s.t.toFixed(1)} s`).toBe(false);
+    expect(s.error, 'media error').toBeNull();
+    if (s.t > last) {
+      last = s.t;
+      lastAdvance = Date.now();
+    }
+    expect(Date.now() - lastAdvance, `position stuck at ${s.t.toFixed(1)} s`).toBeLessThan(3_000);
+  }
+}

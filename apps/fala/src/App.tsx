@@ -253,7 +253,7 @@ export function App({ player }: { player: Player }) {
     if (!s || s.finished || s.timer.runningSince === null) return;
     const t = Date.now();
     if (isDone(s.timer, t)) {
-      player.pause();
+      player.pause('minutnik');
       setSession({ ...s, finished: true, timer: pauseTimer(s.timer, t), pacer: pauseTimer(s.pacer, t) });
     }
   }, [player]);
@@ -299,7 +299,7 @@ export function App({ player }: { player: Player }) {
     if (!file) {
       // The session's file left the catalogue (removed, no longer published): it cannot be
       // started again, but what still plays can always be stopped.
-      if (playing) player.pause();
+      if (playing) player.pause('przycisk (utworu nie ma w katalogu)');
       return;
     }
     if (!swControls) return;
@@ -389,7 +389,7 @@ export function App({ player }: { player: Player }) {
   };
 
   const onRemove = async (t: CatalogueFile) => {
-    if (state.track?.src === t.url) player.pause();
+    if (state.track?.src === t.url) player.pause('usunięcie pliku');
     try {
       await removeTrack(browserCaches(), t.url);
       setOp(t.url, null);

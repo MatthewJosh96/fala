@@ -211,3 +211,28 @@ test('Relaks: changing the session length after the tempo keeps the breathing gu
   const phases = new Set((await samplePhases(page, 8_000, 200)).map((p) => p.phase));
   expect([...phases].sort()).toEqual(['exhale', 'inhale']);
 });
+
+// Diagnostics (blind-tester report: pauses without an error): every pause the app itself asks
+// for is logged with its source, so a bare 'pause' event means the browser paused on its own.
+test('every pause the app asks for is logged with its source', async ({ page }) => {
+  await page.clock.install();
+  await openApp(page);
+  await modeCard(page, 'Skupienie').click();
+  await expectPlaying(page);
+  await page.getByTestId('toggle').click();
+  await expect(page.getByTestId('toggle')).toHaveAttribute('aria-label', 'Odtwórz');
+  await page.getByTestId('toggle').click();
+  await expectPlaying(page);
+  await page.clock.fastForward('25:30');
+  await expect(page.getByTestId('status')).toHaveText(/Sesja zakończona/);
+
+  const log = (await page.evaluate(() => JSON.parse(localStorage.getItem('fala.playbackLog.v1') ?? '[]'))) as {
+    type: string;
+    detail?: string;
+  }[];
+  expect(log.filter((e) => e.type === 'pause-request').map((e) => e.detail)).toEqual(['przycisk', 'minutnik']);
+  // Each pause event comes right after the request that caused it.
+  log.forEach((e, i) => {
+    if (e.type === 'pause') expect(log[i - 1]?.type, `pause at #${i} without a request`).toBe('pause-request');
+  });
+});

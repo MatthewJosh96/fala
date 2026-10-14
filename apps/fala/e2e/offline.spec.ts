@@ -1,8 +1,8 @@
-import { readFileSync, renameSync } from 'node:fs';
+import { readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { expect, test } from '@playwright/test';
-import { BASE, E2E_MEDIA_DIR, TONE, TRACKS } from './fixture';
-import { audioState, expectPlaying, goHash, modeCard, openApp, rangeFetch } from './helpers';
+import { BASE, E2E_MEDIA_DIR, SLOW_RANGES_FLAG, TONE, TRACKS } from './fixture';
+import { audioState, expectPlaying, expectSteadyPlayback, goHash, modeCard, openApp, rangeFetch } from './helpers';
 
 const CHUNK = 2 * 1024 * 1024;
 const mediaPath = (file: string) => `${BASE}media/${file}`;
@@ -102,6 +102,30 @@ test('a track playing from the network keeps playing while and after it is downl
   const card = page.getByTestId('track-card').filter({ hasText: TRACKS.morning.title });
   await card.getByRole('button', { name: 'Usuń' }).click();
   await expect(card.getByTestId('offline-badge')).toHaveText(/Niepobrane/);
+});
+
+// Blind tester on the live site: downloading the playing track stopped playback, and every
+// later "Odtwórz" played only 1–2 s. The preview server sends validators like GitHub Pages.
+test('downloading the track that plays from the network: playback goes on and stays steady', async ({ page }) => {
+  // A real link: the element is still mid-stream when the download commits (on localhost it
+  // has the whole file in ~0.2 s and never asks the service worker again).
+  writeFileSync(SLOW_RANGES_FLAG, '');
+  try {
+    await openApp(page);
+    await modeCard(page, 'Skupienie').click();
+    await expectPlaying(page, 2);
+    const buffered = () => page.evaluate(() => document.querySelector('audio')!.buffered.end(0));
+    expect(await buffered()).toBeLessThan(200); // not the whole file
+    await page.getByTestId('download').click();
+    await expect(page.getByTestId('availability')).toHaveText(/Dostępne offline/, { timeout: 60_000 });
+    await expectSteadyPlayback(page, 6_000);
+    // A jump past the buffer: new ranges, now answered from the stored copy.
+    await page.evaluate(() => (document.querySelector('audio')!.currentTime = 300));
+    await expectSteadyPlayback(page, 12_000);
+    await expect(page.getByTestId('toggle')).toHaveAttribute('aria-label', 'Pauza');
+  } finally {
+    rmSync(SLOW_RANGES_FLAG, { force: true });
+  }
 });
 
 test('Pobrane → Odtwórz: a file without a mode downloads, verifies and plays to its end offline', async ({ page, context }) => {

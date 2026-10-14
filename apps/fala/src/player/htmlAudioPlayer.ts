@@ -112,8 +112,9 @@ export class HtmlAudioPlayer implements Player {
     const ms = navigator.mediaSession;
     const handlers: [MediaSessionAction, MediaSessionActionHandler][] = [
       ['play', () => void this.play()],
-      ['pause', () => this.pause()],
-      ['stop', () => this.pause()],
+      // Lock screen, headphones, media keys, other software: logged as coming from the system.
+      ['pause', () => this.pause('system: pause')],
+      ['stop', () => this.pause('system: stop')],
       ['seekto', (d) => d.seekTime !== undefined && this.seek(d.seekTime)],
       ['seekbackward', (d) => this.seek(this.audio.currentTime - (d.seekOffset ?? SEEK_STEP_S))],
       ['seekforward', (d) => this.seek(this.audio.currentTime + (d.seekOffset ?? SEEK_STEP_S))],
@@ -180,13 +181,14 @@ export class HtmlAudioPlayer implements Player {
     }
   }
 
-  pause() {
+  pause(source = 'aplikacja') {
+    if (!this.audio.paused) this.log('pause-request', source);
     this.audio.pause();
   }
 
   async toggle() {
     if (this.audio.paused) await this.play();
-    else this.pause();
+    else this.pause('przycisk');
   }
 
   seek(seconds: number) {
@@ -196,6 +198,7 @@ export class HtmlAudioPlayer implements Player {
   }
 
   unload() {
+    if (!this.audio.paused) this.log('pause-request', 'aktualizacja: zwolnienie źródła');
     this.audio.pause();
     this.audio.removeAttribute('src');
     this.audio.load();
