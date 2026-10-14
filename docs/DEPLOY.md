@@ -8,8 +8,9 @@ Jak to działa:
 - Kod jest w Git, dźwięk nie. Pliki z `media/catalogue.json` są zasobami wydania GitHub o tagu z pola
   `release` (teraz `media-v1`). Publikuje je `scripts/publish-media.sh`.
 - `.github/workflows/pages.yml` (push do `main` albo ręcznie): `npm ci` → `npm test` → `npm run build`
-  → pobranie zasobów wydania do `dist/media/` → `index.json` w trybie ścisłym (brakujący lub nadmiarowy
-  plik, zły rozmiar albo SHA-256 zatrzymuje wdrożenie) → publikacja `dist/` na Pages.
+  → pobranie wszystkich zasobów wydania do `dist/media/` → kontrola inwentarza (dokładnie pliki z
+  katalogu, po jednym sidecarze, nic więcej) → `index.json` w trybie ścisłym (rozmiar i SHA-256) →
+  publikacja `dist/` na Pages. Każda niezgodność zatrzymuje wdrożenie, zanim cokolwiek zostanie wgrane.
 - Node w CI: 24.21.0 (`apps/fala/.node-version`). Skrypty mediów to TypeScript uruchamiany przez
   Node (`--experimental-strip-types`). Lokalnie działają na Node 22.17 z tą flagą i na prywatnym Node
   24.21 (`~/.local/share/rea/node/bin`), obie wersje sprawdzone.
@@ -22,8 +23,8 @@ Nic z poniższego nie zostało uruchomione: repo, wydanie i Pages nie istnieją.
 
 - **Repo publiczne.** Pages w planie Free działa tylko z repo publicznego, a wtedy publiczna jest cała
   historia: kod, `docs/` (decyzje, plan, akceptacja), `analysis/`, `tools/`, presety. W śledzonych
-  plikach nie ma sekretów ani danych osobowych (sprawdzone 2026-10-14). Commity mają e-mail
-  `joczu96@gmail.com`. Alternatywy: GitHub Pro (Pages z prywatnego repo) albo osobne repo tylko z
+  plikach nie ma sekretów ani danych osobowych (sprawdzone 2026-10-14); historia commitów ujawnia
+  e-mail autora commitów. Alternatywy: GitHub Pro (Pages z prywatnego repo) albo osobne repo tylko z
   aplikacją.
 - **Licencja nagrań.** `LICENSE` (MIT) obejmuje kod. Pliki audio w wydaniu nie mają licencji, więc
   obowiązują domyślnie wszystkie prawa zastrzeżone. Sample VSCO 2 CE są na CC0, więc nie wymuszają

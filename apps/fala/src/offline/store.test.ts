@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   CACHE_NAME,
   DownloadError,
@@ -10,12 +10,14 @@ import {
   listStored,
   metaKey,
   removeTrack,
+  storageReport,
   verifyStored,
   type Progress,
   type TrackInfo,
 } from './store';
 import { buildMediaResponse } from './range';
-import { FakeCaches, pseudoRandomBytes, streamingResponse } from '../test/fakeCaches';
+import { loadCatalogue } from './catalogue';
+import { FakeCaches, FakeLocks, gatedFetch, pseudoRandomBytes, streamingResponse } from '../test/fakeCaches';
 
 const CHUNK = 64 * 1024;
 
@@ -52,7 +54,7 @@ describe('downloadTrack', () => {
     const cache = await caches.open(CACHE_NAME);
     const stored = [];
     for (let i = 0; i < meta.chunkCount; i++) {
-      stored.push(new Uint8Array(await (await cache.match(chunkKey(track.url, i)))!.arrayBuffer()));
+      stored.push(new Uint8Array(await (await cache.match(chunkKey(track.url, meta.attempt, i)))!.arrayBuffer()));
     }
     expect(stored.map((c) => c.length)).toEqual([CHUNK, CHUNK, CHUNK, CHUNK, 300_001 - 4 * CHUNK]);
     expect(Buffer.concat(stored)).toEqual(Buffer.from(bytes));
@@ -124,9 +126,14 @@ describe('downloadTrack', () => {
     const { bytes, track } = fixture();
     const caches = new FakeCaches();
     const cache = await caches.open(CACHE_NAME);
-    await cache.put(chunkKey(track.url, 99), new Response(new Uint8Array(5)));
+    // A chunk in the first storage layout (no attempt id) and one of a dead attempt.
+    const legacy = `/__fala/chunk/${encodeURIComponent(track.url)}/99`;
+    await cache.put(legacy, new Response(new Uint8Array(5)));
+    await cache.put(chunkKey(track.url, 'dead', 0), new Response(new Uint8Array(5)));
     await downloadTrack(track, { caches, fetchFn: fetchOf(bytes), chunkSize: CHUNK });
-    expect(await cache.match(chunkKey(track.url, 99))).toBeUndefined();
+    expect(await cache.match(legacy)).toBeUndefined();
+    expect(await cache.match(chunkKey(track.url, 'dead', 0))).toBeUndefined();
+    expect(await verifyStored(caches, track.url)).toEqual({ ok: true });
   });
 });
 
@@ -134,13 +141,13 @@ describe('verifyStored and removeTrack', () => {
   it('detects a corrupted or missing chunk after download', async () => {
     const { bytes, track } = fixture();
     const caches = new FakeCaches();
-    await downloadTrack(track, { caches, fetchFn: fetchOf(bytes), chunkSize: CHUNK });
+    const meta = await downloadTrack(track, { caches, fetchFn: fetchOf(bytes), chunkSize: CHUNK });
     const cache = await caches.open(CACHE_NAME);
-    const entry = cache.entries.get(chunkKey(track.url, 2))!;
+    const entry = cache.entries.get(chunkKey(track.url, meta.attempt, 2))!;
     entry.body = entry.body.slice();
     entry.body[123] ^= 0xff;
     expect(await verifyStored(caches, track.url)).toEqual({ ok: false, reason: 'SHA-256 niezgodny' });
-    await cache.delete(chunkKey(track.url, 4));
+    await cache.delete(chunkKey(track.url, meta.attempt, 4));
     expect(await verifyStored(caches, track.url)).toEqual({ ok: false, reason: 'brak porcji 4' });
   });
 
@@ -174,5 +181,97 @@ describe('serving stored chunks', () => {
     }
     const full = buildMediaResponse(src, null);
     expect(createHash('sha256').update(new Uint8Array(await full.arrayBuffer())).digest('hex')).toBe(track.sha256);
+  });
+});
+
+const keysFor = async (caches: FakeCaches, url: string) =>
+  [...(await caches.open(CACHE_NAME)).entries.keys()].filter((k) => k.includes(encodeURIComponent(url)));
+
+const noIndex = (async () => new Response('offline', { status: 503 })) as unknown as typeof fetch;
+
+describe('several pages at once (Web Locks)', () => {
+  it('a failing re-download never deletes the verified copy', async () => {
+    const { bytes, track } = fixture();
+    const caches = new FakeCaches();
+    const locks = new FakeLocks();
+    await downloadTrack(track, { caches, locks, fetchFn: fetchOf(bytes), chunkSize: CHUNK });
+    const wrong = { ...track, sha256: '0'.repeat(64) };
+    await expect(downloadTrack(wrong, { caches, locks, fetchFn: fetchOf(bytes), chunkSize: CHUNK })).rejects.toMatchObject({
+      code: 'sha256',
+    });
+    expect(await verifyStored(caches, track.url)).toEqual({ ok: true });
+    expect(await listStored(caches)).toHaveLength(1);
+  });
+
+  it('refuses a second download and a removal of the same file while one is running', async () => {
+    const { bytes, track } = fixture();
+    const caches = new FakeCaches();
+    const locks = new FakeLocks();
+    const gate = gatedFetch(bytes, CHUNK + 10);
+    const first = downloadTrack(track, { caches, locks, fetchFn: gate.fetchFn, chunkSize: CHUNK });
+    await vi.waitFor(() => expect(gate.calls()).toBe(1));
+    await expect(downloadTrack(track, { caches, locks, fetchFn: fetchOf(bytes), chunkSize: CHUNK })).rejects.toMatchObject({
+      code: 'busy',
+    });
+    await expect(removeTrack(caches, track.url, { locks })).rejects.toMatchObject({ code: 'busy' });
+    gate.open();
+    await first;
+    expect(await verifyStored(caches, track.url)).toEqual({ ok: true });
+    await removeTrack(caches, track.url, { locks });
+    expect((await caches.open(CACHE_NAME)).entries.size).toBe(0);
+  });
+
+  it('without the Web Locks API a second attempt in the same page is refused (documented limit: other tabs are not)', async () => {
+    const { bytes, track } = fixture();
+    const caches = new FakeCaches();
+    const gate = gatedFetch(bytes, CHUNK + 10);
+    const first = downloadTrack(track, { caches, locks: null, fetchFn: gate.fetchFn, chunkSize: CHUNK });
+    await vi.waitFor(() => expect(gate.calls()).toBe(1));
+    await expect(downloadTrack(track, { caches, locks: null, fetchFn: fetchOf(bytes), chunkSize: CHUNK })).rejects.toMatchObject({
+      code: 'busy',
+    });
+    await expect(removeTrack(caches, track.url, { locks: null })).rejects.toMatchObject({ code: 'busy' });
+    gate.open();
+    await first;
+    expect(await verifyStored(caches, track.url)).toEqual({ ok: true });
+  });
+});
+
+describe('abandoned downloads', () => {
+  it('chunks of a download whose page died are reclaimed when the catalogue is listed', async () => {
+    const a = fixture();
+    const b = { bytes: pseudoRandomBytes(200_000, 5), track: { ...fixture().track, id: 'other', url: '/media/other.m4a' } };
+    b.track.size = b.bytes.length;
+    b.track.sha256 = createHash('sha256').update(b.bytes).digest('hex');
+    const caches = new FakeCaches();
+    const locks = new FakeLocks();
+    await downloadTrack(b.track, { caches, locks, fetchFn: fetchOf(b.bytes), chunkSize: CHUNK });
+
+    const gate = gatedFetch(a.bytes, 2 * CHUNK + 10);
+    void downloadTrack(a.track, { caches, locks, fetchFn: gate.fetchFn, chunkSize: CHUNK });
+    await vi.waitFor(async () => expect((await keysFor(caches, a.track.url)).length).toBeGreaterThanOrEqual(2));
+    locks.crash(); // the page doing the download is gone; its transfer never finishes
+
+    await loadCatalogue(caches, '/', noIndex, locks);
+    expect(await keysFor(caches, a.track.url)).toEqual([]);
+    expect(await verifyStored(caches, b.track.url)).toEqual({ ok: true });
+    expect(await storageReport(caches)).toEqual({ stored: b.track.size, partial: 0 });
+  });
+
+  it('listing never touches a download that another page is still running, and reports its bytes as partial', async () => {
+    const { bytes, track } = fixture();
+    const caches = new FakeCaches();
+    const locks = new FakeLocks();
+    const gate = gatedFetch(bytes, 2 * CHUNK + 10);
+    const running = downloadTrack(track, { caches, locks, fetchFn: gate.fetchFn, chunkSize: CHUNK });
+    await vi.waitFor(async () => expect((await keysFor(caches, track.url)).length).toBeGreaterThanOrEqual(2));
+
+    await loadCatalogue(caches, '/', noIndex, locks);
+    expect(await storageReport(caches)).toEqual({ stored: 0, partial: 2 * CHUNK });
+
+    gate.open();
+    await running;
+    expect(await verifyStored(caches, track.url)).toEqual({ ok: true });
+    expect(await storageReport(caches)).toEqual({ stored: track.size, partial: 0 });
   });
 });

@@ -5,7 +5,7 @@ pełny 8-godzinny plik **offline, przy zablokowanym ekranie**, bez przerw ≥10 
 systemowa → Capacitor z małym natywnym adapterem AVPlayer (UI zostaje, wymieniany jest tylko `Player`).
 
 Stan (2026-10-14): aplikacja, pliki diagnostyczne (8 h, 30 min, 120 s), detektor i skrypt nagrywania
-są gotowe i przetestowane lokalnie (Vitest 82, Playwright 10 + 2 opcjonalne: plik 8 h i zrzuty ekranów,
+są gotowe i przetestowane lokalnie (Vitest 106, Playwright 15 + 2 opcjonalne: plik 8 h i zrzuty ekranów,
 pytest 52). Aplikacja działa pod ścieżką `/fala/` (jak na GitHub Pages, `docs/DEPLOY.md`), także lokalnie.
 Plik 8 h usunięto 2026-10-14 (brak miejsca na dysku) — przed testem wygeneruj go ponownie (§3).
 **Nie wykonano**: udostępnienia telefonowi (wymaga zgody Maćka), próby generalnej z mikrofonem,

@@ -23,7 +23,10 @@ export interface PlayerState {
   track: TrackMeta | null;
   currentTime: number;
   duration: number;
-  /** True while the element waits for data (buffer underrun). */
+  /**
+   * True while playback is requested but not advancing: waiting for data at the start,
+   * after a seek or on an underrun. Status stays 'playing' (the button shows Pauza).
+   */
   waiting: boolean;
   error: string | null;
 }
@@ -41,6 +44,8 @@ export interface Player {
   pause(): void;
   toggle(): Promise<void>;
   seek(seconds: number): void;
+  /** Stops and releases the source (open requests end), e.g. before an app update. */
+  unload(): void;
   getState(): PlayerState;
   subscribe(listener: (state: PlayerState) => void): () => void;
   /** Passive log of what the platform reported (pauses, stalls, errors) for the overnight test. */

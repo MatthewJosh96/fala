@@ -47,6 +47,7 @@ const stored = (over: Partial<StoredMeta>): StoredMeta => ({
   contentType: 'audio/mp4',
   chunkSize: 1,
   chunkCount: 1,
+  attempt: 'a1',
   verifiedAt: '2026-10-14T00:00:00.000Z',
   ...over,
 });

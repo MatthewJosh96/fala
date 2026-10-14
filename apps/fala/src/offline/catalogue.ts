@@ -1,5 +1,5 @@
 import { isMode, parseMediaIndex, type MediaIndex, type Mode } from './mediaIndex';
-import { listStored, type CachesLike, type StoredMeta, type TrackInfo } from './store';
+import { listStored, recoverAbandoned, type CachesLike, type LockManagerLike, type StoredMeta, type TrackInfo } from './store';
 
 export interface CatalogueFile extends TrackInfo {
   trackId: string;
@@ -95,8 +95,20 @@ async function fetchIndex(base: string, fetchFn: typeof fetch): Promise<MediaInd
   }
 }
 
-/** Server catalogue merged with what is stored offline; offline only the stored part is known. */
-export async function loadCatalogue(caches: CachesLike, base: string, fetchFn: typeof fetch = fetch): Promise<Catalogue> {
-  const [index, stored] = await Promise.all([fetchIndex(base, fetchFn), listStored(caches).catch(() => [])]);
+/**
+ * Server catalogue merged with what is stored offline; offline only the stored part is known.
+ * Listing is also when chunks of abandoned downloads are reclaimed.
+ */
+export async function loadCatalogue(
+  caches: CachesLike,
+  base: string,
+  fetchFn: typeof fetch = fetch,
+  locks?: LockManagerLike | null,
+): Promise<Catalogue> {
+  const storedNow = recoverAbandoned(caches, { locks })
+    .catch(() => undefined)
+    .then(() => listStored(caches))
+    .catch(() => []);
+  const [index, stored] = await Promise.all([fetchIndex(base, fetchFn), storedNow]);
   return { tracks: buildCatalogue(index, stored, base), online: index !== null };
 }

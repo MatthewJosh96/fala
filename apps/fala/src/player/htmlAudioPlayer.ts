@@ -8,6 +8,8 @@ import type { PlaybackEvent, Player, PlayerState, TrackMeta } from './types';
  */
 
 const SEEK_STEP_S = 15;
+// HTMLMediaElement.HAVE_FUTURE_DATA: below it the element cannot advance.
+const HAVE_FUTURE_DATA = 3;
 
 export class HtmlAudioPlayer implements Player {
   private readonly audio: HTMLAudioElement;
@@ -35,6 +37,8 @@ export class HtmlAudioPlayer implements Player {
     }
     this.listen('play', () => {
       this.log('play');
+      // Until 'playing' arrives with too little data, the position does not move.
+      this.set({ waiting: this.audio.readyState < HAVE_FUTURE_DATA });
       sync();
       this.updatePositionState();
     });
@@ -42,6 +46,7 @@ export class HtmlAudioPlayer implements Player {
       // A media element fires 'pause' when it reaches the end, so the end of the file
       // is recorded here without an 'ended' handler.
       this.log('pause', this.audio.ended ? 'koniec pliku' : undefined);
+      this.set({ waiting: false });
       sync();
       this.updatePositionState();
     });
@@ -50,7 +55,11 @@ export class HtmlAudioPlayer implements Player {
       this.set({ waiting: true });
     });
     this.listen('playing', () => this.set({ waiting: false }));
-    this.listen('stalled', () => this.log('stalled'));
+    this.listen('stalled', () => {
+      this.log('stalled');
+      // A stalled download only matters once the buffer cannot carry playback.
+      if (!this.audio.paused && this.audio.readyState < HAVE_FUTURE_DATA) this.set({ waiting: true });
+    });
     this.listen('emptied', () => this.log('emptied'));
     this.listen('seeked', () => this.updatePositionState());
     this.listen('durationchange', () => this.updatePositionState());
@@ -184,6 +193,13 @@ export class HtmlAudioPlayer implements Player {
     const d = Number.isFinite(this.audio.duration) ? this.audio.duration : Infinity;
     this.audio.currentTime = Math.min(Math.max(seconds, 0), d);
     this.syncFromElement();
+  }
+
+  unload() {
+    this.audio.pause();
+    this.audio.removeAttribute('src');
+    this.audio.load();
+    this.set({ status: 'idle', track: null, currentTime: 0, duration: 0, waiting: false, error: null });
   }
 
   getState() {

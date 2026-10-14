@@ -38,9 +38,10 @@ jobs:
       - run: npm test
       - run: npm run build
 
-      # Audio never goes through Git: it is a release asset. The index is rebuilt here in strict
-      # mode, so a missing file, a size or SHA-256 mismatch, or a file the catalogue does not list
-      # stops the deploy instead of publishing a broken catalogue.
+      # Audio never goes through Git: it is a release asset. Every asset is downloaded and the
+      # directory must hold exactly the catalogue's files, one sidecar each, nothing else; then
+      # the index is rebuilt in strict mode (size and SHA-256). Any mismatch stops the deploy
+      # before upload-pages-artifact, instead of publishing unlisted or unverified audio.
       - name: Add media from the release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -48,8 +49,7 @@ jobs:
           release=$(node -p 'require("../../media/catalogue.json").release')
           echo "media release: $release"
           mkdir -p dist/media
-          gh release download "$release" --repo "$GITHUB_REPOSITORY" --dir dist/media \
-            --pattern '*.m4a' --pattern '*.json'
+          gh release download "$release" --repo "$GITHUB_REPOSITORY" --dir dist/media
           node --experimental-strip-types scripts/media.ts index dist/media \
             --strict --verify-sha --catalogue ../../media/catalogue.json
           find dist/media -name '*.json' ! -name index.json -delete

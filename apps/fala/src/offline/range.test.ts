@@ -123,3 +123,44 @@ describe('buildMediaResponse', () => {
     await expect(buildMediaResponse(src, 'bytes=1500-1600').arrayBuffer()).rejects.toThrow(/shorter/);
   });
 });
+
+describe('If-Range (RFC 9110 §13.1.5)', () => {
+  const bytes = pseudoRandomBytes(5000, 11);
+  const etag = '"sha256-abc"';
+  const withTag = () => ({ ...memorySource(bytes, 1024).src, etag });
+
+  it('serves the range when If-Range matches the strong ETag', async () => {
+    const res = buildMediaResponse(withTag(), 'bytes=1-2', 'GET', etag);
+    expect(res.status).toBe(206);
+    expect(res.headers.get('ETag')).toBe(etag);
+    expect(await body(res)).toEqual(bytes.slice(1, 3));
+  });
+
+  it.each(['"sha256-other"', 'W/"sha256-abc"', 'Tue, 14 Oct 2026 10:00:00 GMT'])(
+    'If-Range %s does not match: Range is ignored and the whole file is sent',
+    async (ifRange) => {
+      const res = buildMediaResponse(withTag(), 'bytes=1-2', 'GET', ifRange);
+      expect(res.status).toBe(200);
+      expect(res.headers.get('Content-Range')).toBeNull();
+      expect(res.headers.get('Content-Length')).toBe('5000');
+      expect(res.headers.get('ETag')).toBe(etag);
+      expect(await body(res)).toEqual(bytes);
+    },
+  );
+
+  it('a failed If-Range also overrides an unsatisfiable range (200, never 416)', () => {
+    expect(buildMediaResponse(withTag(), 'bytes=9999-', 'GET', '"stale"').status).toBe(200);
+    expect(buildMediaResponse(withTag(), 'bytes=9999-', 'GET', null).status).toBe(416);
+  });
+
+  it('without a known validator any If-Range means the whole file', () => {
+    expect(buildMediaResponse(memorySource(bytes, 1024).src, 'bytes=1-2', 'GET', '"x"').status).toBe(200);
+    expect(buildMediaResponse(memorySource(bytes, 1024).src, 'bytes=1-2', 'GET', null).status).toBe(206);
+  });
+
+  it('sends the ETag on 200, 206 and 416', () => {
+    for (const r of [null, 'bytes=0-0', 'bytes=9999-']) {
+      expect(buildMediaResponse(withTag(), r, 'GET', null).headers.get('ETag')).toBe(etag);
+    }
+  });
+});

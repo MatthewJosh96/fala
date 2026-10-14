@@ -3,12 +3,13 @@
  *   stage --catalogue <media/catalogue.json> --root <repo> --out <dir> [--copy]
  *       symlinks (or copies) the published renders into <dir> and writes their sidecars
  *   index <dir> [--out <file>] [--strict] [--verify-sha] [--catalogue <media/catalogue.json>]
- *       writes media/index.json from the files and sidecars in <dir>; with --catalogue,
- *       fails unless <dir> holds exactly the files the catalogue lists
+ *       writes media/index.json from the files and sidecars in <dir>; with --catalogue it
+ *       first fails unless <dir> holds exactly the catalogue's files, one sidecar each,
+ *       and nothing else (run before anything is uploaded)
  */
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
-import { buildIndex, compareWithCatalogue, readCatalogueSpec, stageFromSpec } from '../server/mediaIndex.ts';
+import { buildIndex, compareWithCatalogue, inventoryProblems, readCatalogueSpec, stageFromSpec } from '../server/mediaIndex.ts';
 
 function opt(args: string[], name: string): string | undefined {
   const i = args.indexOf(name);
@@ -31,11 +32,16 @@ async function main(argv: string[]) {
     if (!dir || dir.startsWith('--')) {
       throw new Error('usage: index <dir> [--out <file>] [--strict] [--verify-sha] [--catalogue <file>]');
     }
+    const catalogue = opt(args, '--catalogue');
+    const spec = catalogue ? await readCatalogueSpec(catalogue) : null;
+    if (spec) {
+      const problems = await inventoryProblems(dir, spec);
+      if (problems.length) throw new Error(`${dir} does not match ${catalogue}:\n  ${problems.join('\n  ')}`);
+    }
     const index = await buildIndex(dir, { strict: args.includes('--strict'), verifySha: args.includes('--verify-sha') });
     if (index.tracks.length === 0) throw new Error(`no tracks found in ${dir}`);
-    const catalogue = opt(args, '--catalogue');
-    if (catalogue) {
-      const { missing, unexpected } = compareWithCatalogue(index, await readCatalogueSpec(catalogue));
+    if (spec) {
+      const { missing, unexpected } = compareWithCatalogue(index, spec);
       if (missing.length || unexpected.length) {
         throw new Error(`${dir} does not match ${catalogue}: missing [${missing.join(', ')}], unexpected [${unexpected.join(', ')}]`);
       }

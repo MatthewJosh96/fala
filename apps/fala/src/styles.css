@@ -889,3 +889,22 @@ h2 {
     margin-top: var(--u);
   }
 }
+
+/* Update notice on the home screen (F5): quiet, one line. */
+.update-note {
+  margin: calc(var(--u) * 2) 0 0;
+  text-align: center;
+  font-size: 14px;
+  color: var(--text-2);
+}
+
+.link-btn {
+  margin-left: var(--u);
+  padding: 4px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-pill);
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  cursor: pointer;
+}

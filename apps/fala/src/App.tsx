@@ -1,6 +1,8 @@
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { latestOnly } from './app/latest';
 import { loadPrefs, savePrefs, type Prefs } from './app/prefs';
 import { MODE_LABEL, MODE_ROUTE, hrefFor, parseRoute, type Route } from './app/routes';
+import { canUpdateNow, updateStep, updates, type Activity } from './app/updates';
 import {
   allFiles,
   chooseTrack,
@@ -11,7 +13,7 @@ import {
   type CatalogueFile,
 } from './offline/catalogue';
 import type { Mode } from './offline/mediaIndex';
-import { downloadTrack, removeTrack, verifyStored, type CachesLike, type Progress } from './offline/store';
+import { downloadTrack, removeTrack, storageReport, verifyStored, type CachesLike, type Progress } from './offline/store';
 import { appendLog, clearLog, readLog } from './player/playbackLog';
 import type { PlaybackEvent, Player, TrackMeta } from './player/types';
 import { createTimer, elapsedMs, isDone, pauseTimer, progress, remainingMs, startTimer, type TimerState } from './session/timer';
@@ -29,11 +31,17 @@ const browserCaches = () => window.caches as unknown as CachesLike;
 interface Session {
   mode: Mode;
   timer: TimerState;
+  /**
+   * Relaks: the breathing clock. Runs with the timer (only while sound advances) but is
+   * independent of its length: changing the session time keeps the breathing going,
+   * changing the tempo restarts it.
+   */
+  pacer: TimerState;
   finished: boolean;
-  /** Relaks: session time at which the pacer (re)started; changing the tempo restarts it. */
-  pacerOffsetMs: number;
   startRate: number;
 }
+
+const newClock = (running: boolean, t: number) => (running ? startTimer(createTimer(0), t) : createTimer(0));
 
 function useRoute(): [Route, (r: Route) => void] {
   const [route, setRoute] = useState(() => parseRoute(location.hash));
@@ -81,6 +89,8 @@ export function App({ player }: { player: Player }) {
   const [route, go] = useRoute();
   const [catalogue, setCatalogue] = useState<Catalogue>({ tracks: [], online: navigator.onLine });
   const [catalogueLoaded, setCatalogueLoaded] = useState(false);
+  const [usage, setUsage] = useState<{ stored: number; partial: number } | null>(null);
+  const update = useSyncExternalStore(updates.subscribe, updates.get);
   const [ops, setOps] = useState<Record<string, TrackOp>>({});
   const [log, setLog] = useState<PlaybackEvent[]>(readLog);
   const [prefs, setPrefs] = useState<Prefs>(loadPrefs);
@@ -90,20 +100,44 @@ export function App({ player }: { player: Player }) {
   const sessionRef = useRef(session);
   sessionRef.current = session;
   const playing = state.status === 'playing';
+  // The session clock and the breathing ramp count only real progress, not buffering.
+  const advancing = playing && !state.waiting;
 
   useEffect(() => savePrefs(prefs), [prefs]);
+
+  // Only the newest load is applied: a slow offline listing must not overwrite a later online one.
+  const loader = useMemo(
+    () =>
+      latestOnly(
+        async () => {
+          const caches = browserCaches();
+          const cat = await loadCatalogue(caches, BASE);
+          return { cat, usage: await storageReport(caches).catch(() => null) };
+        },
+        ({ cat, usage }) => {
+          setCatalogue(cat);
+          setUsage(usage);
+          setCatalogueLoaded(true);
+        },
+      ),
+    [],
+  );
+  useEffect(() => () => loader.cancel(), [loader]);
 
   const refresh = useCallback(async () => {
     if (!('caches' in window)) {
       setCatalogueLoaded(true);
       return;
     }
-    setCatalogue(await loadCatalogue(browserCaches(), BASE));
-    setCatalogueLoaded(true);
-  }, []);
+    await loader().catch(() => setCatalogueLoaded(true));
+  }, [loader]);
 
   useEffect(() => {
     void refresh();
+    // Started offline: once the network is back, the server catalogue (and downloads) return.
+    const on = () => void refresh();
+    window.addEventListener('online', on);
+    return () => window.removeEventListener('online', on);
   }, [refresh]);
 
   useEffect(() => {
@@ -163,19 +197,21 @@ export function App({ player }: { player: Player }) {
     else if (!session && diagFile) player.load(toTrackMeta(diagFile, 'Odtwarzacz testowy', false));
   }, [session?.mode, sessionFile?.url, diagFile?.url, swControls, player]);
 
-  // The countdown runs while audio plays, whatever started it (screen, lock screen, headphones).
+  // The countdown runs while audio really advances, whatever started it (screen, lock
+  // screen, headphones); buffering at the start or on an underrun does not count.
   useEffect(() => {
     const t = Date.now();
     setSession((s) => {
       if (!s) return s;
-      if (playing && s.finished) {
+      if (advancing && s.finished) {
         // Played again after the timer ended: a fresh session of the same length.
-        return { ...s, finished: false, pacerOffsetMs: 0, timer: startTimer(createTimer(s.timer.durationMs / 60_000), t) };
+        return { ...s, finished: false, pacer: newClock(true, t), timer: startTimer(createTimer(s.timer.durationMs / 60_000), t) };
       }
-      const timer = playing ? startTimer(s.timer, t) : pauseTimer(s.timer, t);
-      return timer === s.timer ? s : { ...s, timer };
+      const timer = advancing ? startTimer(s.timer, t) : pauseTimer(s.timer, t);
+      const pacer = advancing ? startTimer(s.pacer, t) : pauseTimer(s.pacer, t);
+      return timer === s.timer && pacer === s.pacer ? s : { ...s, timer, pacer };
     });
-  }, [playing]);
+  }, [advancing]);
 
   const checkDone = useCallback(() => {
     const s = sessionRef.current;
@@ -183,7 +219,7 @@ export function App({ player }: { player: Player }) {
     const t = Date.now();
     if (isDone(s.timer, t)) {
       player.pause();
-      setSession({ ...s, finished: true, timer: pauseTimer(s.timer, t) });
+      setSession({ ...s, finished: true, timer: pauseTimer(s.timer, t), pacer: pauseTimer(s.pacer, t) });
     }
   }, [player]);
 
@@ -202,13 +238,13 @@ export function App({ player }: { player: Player }) {
     const file = modeFile(mode);
     const minutes = prefs[mode].minutes;
     const t = Date.now();
-    // If the same file is already playing (Skupienie -> Relaks), the status will not change, so start now.
-    const keepsPlaying = playing && file !== null && state.track?.src === file.url;
+    // If the same file is already advancing (Skupienie -> Relaks), that will not change, so start now.
+    const keepsPlaying = advancing && file !== null && state.track?.src === file.url;
     setSession({
       mode,
       timer: keepsPlaying ? startTimer(createTimer(minutes), t) : createTimer(minutes),
+      pacer: newClock(keepsPlaying, t),
       finished: false,
-      pacerOffsetMs: 0,
       startRate: prefs.relax.startRate,
     });
     setDiagUrl(null);
@@ -236,7 +272,8 @@ export function App({ player }: { player: Player }) {
     setPrefs((p) => ({ ...p, [mode]: { ...p[mode], minutes } }));
     if (session?.mode === mode) {
       const t = Date.now();
-      setSession({ ...session, finished: false, timer: playing ? startTimer(createTimer(minutes), t) : createTimer(minutes) });
+      // The breathing clock is left alone: a new session length must not freeze or restart it.
+      setSession({ ...session, finished: false, timer: advancing ? startTimer(createTimer(minutes), t) : createTimer(minutes) });
     }
   };
 
@@ -254,16 +291,16 @@ export function App({ player }: { player: Player }) {
   const onStartRate = (startRate: number) => {
     setPrefs((p) => ({ ...p, relax: { ...p.relax, startRate } }));
     if (session?.mode === 'relax') {
-      setSession({ ...session, startRate, pacerOffsetMs: elapsedMs(session.timer, Date.now()) });
+      setSession({ ...session, startRate, pacer: newClock(advancing, Date.now()) });
     }
   };
 
   const pacerSeconds = useCallback(() => {
     const s = sessionRef.current;
     if (!s || s.mode !== 'relax' || s.finished) return null;
-    const e = elapsedMs(s.timer, Date.now());
-    if (s.timer.runningSince === null && e === 0) return null;
-    return Math.max(0, e - s.pacerOffsetMs) / 1000;
+    const e = elapsedMs(s.pacer, Date.now());
+    if (s.pacer.runningSince === null && e === 0) return null;
+    return e / 1000;
   }, []);
 
   const setOp = (url: string, op: TrackOp | null) =>
@@ -309,8 +346,12 @@ export function App({ player }: { player: Player }) {
 
   const onRemove = async (t: CatalogueFile) => {
     if (state.track?.src === t.url) player.pause();
-    await removeTrack(browserCaches(), t.url);
-    setOp(t.url, null);
+    try {
+      await removeTrack(browserCaches(), t.url);
+      setOp(t.url, null);
+    } catch (e) {
+      setOp(t.url, { kind: 'error', message: e instanceof Error ? e.message : String(e) });
+    }
     await refresh();
   };
 
@@ -350,6 +391,31 @@ export function App({ player }: { player: Player }) {
     };
   };
 
+  // App updates (F5): never while sound plays or a file is being stored; a paused session
+  // is not cut either unless the user asks from the home screen.
+  const activity: Activity = {
+    playing,
+    storing: Object.values(ops).some((o) => o.kind === 'downloading' || o.kind === 'verifying'),
+    liveSession: session !== null && !session.finished && (playing || elapsedMs(session.timer, now) > 0),
+  };
+  const applyUpdate = useCallback(() => {
+    if (updates.get() !== 'waiting') return location.reload();
+    // An open media request keeps the old worker busy and the new one waiting; release it.
+    player.unload();
+    updates.apply();
+  }, [player]);
+  const step = updateStep(update, activity);
+  useEffect(() => {
+    if (step === 'apply') applyUpdate();
+    else if (step === 'reload') location.reload();
+  }, [step, applyUpdate]);
+  useEffect(() => {
+    if (update !== 'applying') return;
+    // Another page may still hold the old worker; reloading this one frees our side of it.
+    const id = setTimeout(() => location.reload(), 10_000);
+    return () => clearTimeout(id);
+  }, [update]);
+
   let resume: ResumeChip | null = null;
   if (session && !session.finished && (playing || elapsedMs(session.timer, now) > 0)) {
     const s = session;
@@ -374,6 +440,7 @@ export function App({ player }: { player: Player }) {
             playing={playing}
             activeMode={session && !session.finished ? session.mode : null}
             onStart={(m) => startMode(m, true)}
+            update={update === 'none' ? null : { state: update, canApply: canUpdateNow(activity), onApply: applyUpdate }}
           />
         )}
         {route === 'focus' && (
@@ -399,6 +466,7 @@ export function App({ player }: { player: Player }) {
           <DownloadsScreen
             tracks={allFiles(catalogue.tracks)}
             online={catalogue.online}
+            usage={usage}
             ops={ops}
             log={log}
             onDownload={(f) => void onDownload(f)}

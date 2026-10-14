@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -105,5 +105,41 @@ describe('media index generation', () => {
     spec.tracks.pop();
     spec.tracks.push({ id: 'old', title: 'Old', modes: [], variants: [{ id: 'old', file: 'old.m4a', source: 'z' }] });
     expect(compareWithCatalogue(index, spec)).toEqual({ missing: [], unexpected: [] });
+  });
+
+  // F3: what the Pages workflow and publish-media.sh run before anything is uploaded.
+  it('the publish check (media.ts index --strict --catalogue) fails on any file the catalogue does not list', () => {
+    const a = new Uint8Array([1, 2, 3]);
+    const sidecar = (file: string, bytes: Uint8Array) => JSON.stringify({ track_id: 'a', id: 'a', file, size: bytes.length, sha256: sha(bytes) });
+    const root = mkdtempSync(path.join(tmpdir(), 'fala-publish-'));
+    const specFile = path.join(root, 'catalogue.json');
+    writeFileSync(
+      specFile,
+      JSON.stringify({
+        schema: 'fala-catalogue/1',
+        release: 'media-v1',
+        tracks: [{ id: 'a', title: 'A', modes: ['focus'], variants: [{ id: 'a', file: 'a.m4a', source: 'x' }] }],
+      }),
+    );
+    const check = (files: Record<string, string | Uint8Array>) => {
+      const r = spawnSync(
+        process.execPath,
+        ['--no-warnings', '--experimental-strip-types', path.resolve('scripts/media.ts'), 'index', dirWith(files), '--strict', '--verify-sha', '--catalogue', specFile],
+        { encoding: 'utf8' },
+      );
+      return { status: r.status, out: `${r.stdout}${r.stderr}` };
+    };
+    const good = { 'a.m4a': a, 'a.json': sidecar('a.m4a', a) };
+    expect(check(good).status).toBe(0);
+    const bad: [string, Record<string, string | Uint8Array>][] = [
+      ['audio without a sidecar', { ...good, 'unlisted.m4a': a }],
+      ['a second sidecar for the same file', { ...good, 'a-copy.json': sidecar('a.m4a', a) }],
+      ['an unrelated file', { ...good, 'notes.txt': 'x' }],
+      ['a listed file without its sidecar', { 'a.m4a': a }],
+    ];
+    for (const [why, files] of bad) {
+      const r = check(files);
+      expect(r.status, `${why}: ${r.out}`).not.toBe(0);
+    }
   });
 });

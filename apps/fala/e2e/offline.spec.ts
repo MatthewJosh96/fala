@@ -37,6 +37,21 @@ test('a track downloaded in Skupienie plays offline under /fala/ after a reload,
     expect(Buffer.from(r.bytes)).toEqual(bytes.subarray(a, b + 1));
   }
 
+  // If-Range (F1): the stored copy's strong ETag keeps the range, any other validator gets the whole file.
+  const etag = await page.evaluate(async (u) => (await fetch(u, { headers: { Range: 'bytes=0-1' } })).headers.get('etag'), url);
+  expect(etag).toMatch(/^"sha256-[0-9a-f]{64}"$/);
+  const conditional = (ifRange: string) =>
+    page.evaluate(
+      async ([u, v]) => {
+        const res = await fetch(u, { headers: { Range: 'bytes=0-1', 'If-Range': v } });
+        await res.arrayBuffer();
+        return { status: res.status, length: res.headers.get('content-length') };
+      },
+      [url, ifRange] as const,
+    );
+  expect(await conditional(etag!)).toEqual({ status: 206, length: '2' });
+  expect(await conditional('"sha256-stale"')).toEqual({ status: 200, length: String(bytes.length) });
+
   // Offline only the stored track is known, so there is no track choice.
   await expect(page.locator('.track-title')).toHaveText(TRACKS.morning.title);
   await expect(page.getByRole('group', { name: 'Utwór' })).toHaveCount(0);
@@ -154,6 +169,18 @@ test('the app shell is installable under /fala/: manifest, icons, iOS meta tags,
     return refs.filter((p) => !p.startsWith(base));
   }, BASE);
   expect(outside).toEqual([]);
+});
+
+test('coming back online refreshes the catalogue without a reload (F9)', async ({ page, context }) => {
+  await openApp(page, '#/skupienie');
+  await expect(page.locator('.track-title')).toHaveText(TRACKS.morning.title);
+  await context.setOffline(true);
+  await page.reload();
+  await expect(page.locator('.track-title')).toHaveText('Brak utworu');
+
+  await context.setOffline(false);
+  await expect(page.locator('.track-title')).toHaveText(TRACKS.morning.title);
+  await expect(page.getByTestId('download')).toBeVisible();
 });
 
 test('an unknown path under /fala/ (GitHub Pages 404 page) returns to the app and keeps the screen', async ({ page }) => {

@@ -70,3 +70,58 @@ export function pseudoRandomBytes(n: number, seed = 1): Uint8Array {
   }
   return out;
 }
+
+/**
+ * Web Locks stand-in shared by several simulated pages (one origin). Exclusive locks only.
+ * crash() releases everything, as the browser does when a page dies.
+ */
+export class FakeLocks {
+  private held = new Set<string>();
+  private generation = 0;
+  async request<T>(name: string, options: { ifAvailable?: boolean }, callback: (lock: { name: string } | null) => Promise<T> | T): Promise<T> {
+    while (this.held.has(name)) {
+      if (options.ifAvailable) return callback(null);
+      await new Promise((r) => setTimeout(r, 1));
+    }
+    this.held.add(name);
+    const gen = this.generation;
+    try {
+      return await callback({ name });
+    } finally {
+      // A crashed page's lock is already gone; do not release a lock taken after the crash.
+      if (gen === this.generation) this.held.delete(name);
+    }
+  }
+  crash() {
+    this.held.clear();
+    this.generation++;
+  }
+  isHeld(name: string) {
+    return this.held.has(name);
+  }
+}
+
+/** A download whose body delivers `firstBytes`, then waits until open() is called. */
+export function gatedFetch(bytes: Uint8Array, firstBytes: number) {
+  let open!: () => void;
+  const gate = new Promise<void>((r) => (open = r));
+  let calls = 0;
+  const fetchFn = (async () => {
+    calls++;
+    let sentFirst = false;
+    const body = new ReadableStream<Uint8Array>({
+      async pull(controller) {
+        if (!sentFirst) {
+          sentFirst = true;
+          controller.enqueue(bytes.slice(0, firstBytes));
+          return;
+        }
+        await gate;
+        controller.enqueue(bytes.slice(firstBytes));
+        controller.close();
+      },
+    });
+    return new Response(body, { status: 200 });
+  }) as unknown as typeof fetch;
+  return { fetchFn, open, calls: () => calls };
+}

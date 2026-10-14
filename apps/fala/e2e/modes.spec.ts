@@ -179,3 +179,35 @@ test('Relaks: inhale and exhale alternate 4:6 from the chosen tempo and slow dow
   await expect.poll(() => page.locator('.breath-circle').evaluate((e) => (e as HTMLElement).style.transform)).toBe('');
   await expect(page.getByTestId('breath-phase')).toHaveText(/Wdech|Wydech/);
 });
+
+test('Minutnik and breathing wait while the sound is buffering (F4)', async ({ page, context }) => {
+  await page.clock.install();
+  await openApp(page);
+  // Audio requests (also those the service worker makes) never get an answer: playback cannot start.
+  await context.route('**/*.m4a', () => undefined);
+  await modeCard(page, 'Skupienie').click();
+  await expect(page.getByTestId('toggle')).toHaveAttribute('aria-label', 'Pauza');
+  await expect(page.getByTestId('status')).toHaveText('Buforowanie…');
+
+  await page.clock.fastForward('02:00');
+  const s = await audioState(page);
+  expect(s.t).toBe(0);
+  expect(s.paused).toBe(false);
+  await expect(page.getByTestId('remaining')).toHaveText('25:00');
+});
+
+test('Relaks: changing the session length after the tempo keeps the breathing guide moving (F7)', async ({ page }) => {
+  await page.clock.install();
+  await openApp(page, '#/relaks');
+  await page.getByTestId('toggle').click();
+  await expectPlaying(page);
+  await page.clock.pauseAt(await page.evaluate(() => Date.now() + 50));
+  await page.clock.fastForward('01:00');
+  await page.getByRole('button', { name: 'Szybciej' }).click();
+  await page.getByRole('group', { name: 'Czas sesji' }).getByRole('radio', { name: '20 min' }).click();
+  await expect(page.getByTestId('remaining')).toHaveText('20:00');
+
+  // 11 breaths/min: both phases within 8 s.
+  const phases = new Set((await samplePhases(page, 8_000, 200)).map((p) => p.phase));
+  expect([...phases].sort()).toEqual(['exhale', 'inhale']);
+});

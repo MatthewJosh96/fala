@@ -161,6 +161,43 @@ export async function readCatalogueSpec(file: string): Promise<CatalogueSpec> {
   return spec;
 }
 
+/**
+ * Physical inventory of a directory about to be published, against the catalogue: every
+ * listed file present with exactly one sidecar, and nothing else (no unlisted audio, no
+ * stray sidecars or other files). Sidecar contents (size, SHA-256) are checked by buildIndex.
+ */
+export async function inventoryProblems(dir: string, spec: CatalogueSpec): Promise<string[]> {
+  const names = (await fs.readdir(dir)).sort();
+  const expected = new Set(spec.tracks.flatMap((t) => t.variants.map((v) => v.file)));
+  const problems: string[] = [];
+  const sidecars = new Map<string, string[]>();
+  for (const name of names) {
+    if (name === 'index.json') continue;
+    if (name.endsWith('.json')) {
+      let file: unknown;
+      try {
+        file = (JSON.parse(await fs.readFile(path.join(dir, name), 'utf8')) as { file?: unknown }).file;
+      } catch {
+        problems.push(`${name}: invalid JSON`);
+        continue;
+      }
+      if (typeof file !== 'string' || !expected.has(file)) {
+        problems.push(`${name}: sidecar for ${JSON.stringify(file)}, which the catalogue does not list`);
+        continue;
+      }
+      sidecars.set(file, [...(sidecars.get(file) ?? []), name]);
+      continue;
+    }
+    if (!expected.has(name)) problems.push(`${name}: not in the catalogue`);
+  }
+  for (const file of expected) {
+    if (!names.includes(file)) problems.push(`${file}: missing`);
+    const found = sidecars.get(file) ?? [];
+    if (found.length !== 1) problems.push(`${file}: ${found.length} sidecars (${found.join(', ') || 'none'}), expected exactly one`);
+  }
+  return problems;
+}
+
 /** Files the catalogue lists but the index lacks, and files published without a catalogue entry. */
 export function compareWithCatalogue(index: MediaIndex, spec: CatalogueSpec): { missing: string[]; unexpected: string[] } {
   const published = new Set(index.tracks.flatMap((t) => t.variants.map((v) => v.file)));

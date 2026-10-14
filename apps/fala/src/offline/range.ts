@@ -31,7 +31,23 @@ export interface ChunkSource {
   size: number;
   chunkSize: number;
   contentType: string;
+  /** Strong validator of these exact bytes, sent as ETag and checked against If-Range. */
+  etag?: string;
   readChunk(index: number): Promise<Uint8Array>;
+}
+
+/** A verified copy is identified by its SHA-256, so the hash is a strong validator. */
+export const strongEtag = (sha256: string) => `"sha256-${sha256.toLowerCase()}"`;
+
+/**
+ * RFC 9110 §13.1.5: with If-Range, a Range is honoured only when the validator strongly
+ * matches the current ETag. Weak tags and HTTP-dates (there is no Last-Modified) never match;
+ * then the whole representation is sent with 200.
+ */
+function ifRangeAllows(ifRange: string | null | undefined, etag: string | undefined): boolean {
+  if (ifRange == null) return true;
+  const v = ifRange.trim();
+  return etag !== undefined && !v.startsWith('W/') && v === etag;
 }
 
 /**
@@ -65,13 +81,15 @@ export function buildMediaResponse(
   src: ChunkSource,
   rangeHeader: string | null,
   method = 'GET',
+  ifRange: string | null = null,
 ): Response {
-  const range = parseRange(rangeHeader, src.size);
+  const range: ParsedRange = ifRangeAllows(ifRange, src.etag) ? parseRange(rangeHeader, src.size) : { kind: 'none' };
   const base: Record<string, string> = {
     'Content-Type': src.contentType,
     'Accept-Ranges': 'bytes',
     'Cache-Control': 'no-store',
   };
+  if (src.etag) base.ETag = src.etag;
   if (range.kind === 'unsatisfiable') {
     return new Response(null, {
       status: 416,

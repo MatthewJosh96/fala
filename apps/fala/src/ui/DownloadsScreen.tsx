@@ -38,6 +38,8 @@ const PERSIST_TEXT: Record<Persist, string> = {
 export function DownloadsScreen(props: {
   tracks: CatalogueFile[];
   online: boolean;
+  /** Bytes of verified files, and of chunks that belong to no verified file. */
+  usage: { stored: number; partial: number } | null;
   ops: Record<string, TrackOp>;
   log: PlaybackEvent[];
   onDownload: (t: CatalogueFile) => void;
@@ -135,9 +137,17 @@ export function DownloadsScreen(props: {
         <p>
           Pamięć trwała: <strong data-testid="persist">{PERSIST_TEXT[storage.persist]}</strong>
         </p>
+        {props.usage && (
+          <p data-testid="media-usage">
+            Pobrane pliki: {formatMB(props.usage.stored)}
+            {props.usage.partial > 0 && (
+              <> · niedokończone pobrania: {formatMB(props.usage.partial)} (zostaną usunięte, gdy nic ich nie używa)</>
+            )}
+          </p>
+        )}
         {storage.estimate && (
           <p className="muted">
-            Zajęte {formatMB(storage.estimate.usage)} z dostępnych {formatMB(storage.estimate.quota)}
+            Przeglądarka: zajęte {formatMB(storage.estimate.usage)} z dostępnych {formatMB(storage.estimate.quota)}
           </p>
         )}
         {storage.persist !== 'granted' && storage.persist !== 'unsupported' && (

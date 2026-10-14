@@ -21,7 +21,8 @@ export default defineConfig({
       strategies: 'injectManifest',
       srcDir: 'src',
       filename: 'sw.ts',
-      registerType: 'autoUpdate',
+      // 'prompt': an update waits for the page (src/app/updates.ts) instead of reloading it mid-playback.
+      registerType: 'prompt',
       injectRegister: false,
       injectManifest: {
         rollupFormat: 'iife',

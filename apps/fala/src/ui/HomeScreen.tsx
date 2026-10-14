@@ -1,4 +1,5 @@
 import type { JSX } from 'react';
+import type { UpdateState } from '../app/updates';
 import type { Mode } from '../offline/mediaIndex';
 import { greeting } from '../session/greeting';
 import { Chevron, FocusIcon, RelaxIcon, SleepIcon, Wave } from './parts';
@@ -16,18 +17,49 @@ export interface ResumeChip {
   onClick: () => void;
 }
 
+export interface UpdateNotice {
+  state: UpdateState;
+  /** False while sound plays or a file is being stored. */
+  canApply: boolean;
+  onApply: () => void;
+}
+
+function UpdateNote({ update }: { update: UpdateNotice }) {
+  const busy = update.state === 'applying' || update.state === 'activated';
+  return (
+    <p className="update-note" data-testid="update" role="status">
+      {busy ? (
+        'Aktualizuję…'
+      ) : (
+        <>
+          {update.state === 'controlling' ? 'Aktualizacja gotowa' : 'Dostępna aktualizacja'}
+          {update.canApply ? (
+            <button className="link-btn" onClick={update.onApply}>
+              {update.state === 'controlling' ? 'Uruchom ponownie' : 'Zaktualizuj'}
+            </button>
+          ) : (
+            <span className="muted"> · po zatrzymaniu dźwięku</span>
+          )}
+        </>
+      )}
+    </p>
+  );
+}
+
 export function HomeScreen({
   hour,
   resume,
   playing,
   activeMode,
   onStart,
+  update,
 }: {
   hour: number;
   resume: ResumeChip | null;
   playing: boolean;
   activeMode: Mode | null;
   onStart: (m: Mode) => void;
+  update: UpdateNotice | null;
 }) {
   const g = greeting(hour);
   return (
@@ -82,6 +114,8 @@ export function HomeScreen({
           </button>
         ))}
       </nav>
+
+      {update && <UpdateNote update={update} />}
 
       <footer className="home-foot">
         <a href="#/pobrane">Pobrane</a>
