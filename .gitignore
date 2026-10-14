@@ -9,3 +9,5 @@ docs/design/gen/status.txt
 
 # Large generated media and overnight recordings (never in Git)
 renders/
+__pycache__/
+*.pyc
