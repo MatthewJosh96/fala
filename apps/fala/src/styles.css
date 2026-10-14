@@ -13,7 +13,9 @@
   --radius-pill: 999px;
   --u: 8px;
   color-scheme: dark;
-  font-family: -apple-system, 'SF Pro Text', Inter, system-ui, sans-serif;
+  /* System font only: Inter is not shipped, and a local install without its light weights
+     made Chrome draw the 200-weight clocks in Regular. */
+  font-family: -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
   -webkit-text-size-adjust: 100%;
 }
 
@@ -392,6 +394,7 @@ h2 {
 
 .availability {
   min-height: 32px;
+  margin-top: var(--u);
   display: grid;
   justify-items: center;
   align-content: center;

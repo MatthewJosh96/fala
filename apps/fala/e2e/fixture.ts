@@ -11,3 +11,5 @@ export const TRACKS = {
   morning: { id: 'poranne-swiatlo', title: 'Poranne światło', file: 'poranne-swiatlo.m4a' },
   pulse: { id: 'miekki-puls', title: 'Miękki puls', file: 'miekki-puls.m4a' },
 } as const;
+/** Generated tone without modes: listed in Pobrane with "Odtwórz", like the diagnostic files. */
+export const TONE = { id: 'e2e-tone', title: 'Ton testowy e2e', file: 'e2e-tone.m4a', durationS: 20 } as const;

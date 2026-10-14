@@ -1,91 +1,64 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
-import { expect, test, type Page } from '@playwright/test';
-import { E2E_MEDIA_DIR, FIXTURE } from './fixture';
+import { expect, test } from '@playwright/test';
+import { BASE, E2E_MEDIA_DIR, TONE, TRACKS } from './fixture';
+import { audioState, expectPlaying, goHash, modeCard, openApp, rangeFetch } from './helpers';
 
 const CHUNK = 2 * 1024 * 1024;
+const mediaPath = (file: string) => `${BASE}media/${file}`;
 
-const audioState = (page: Page) =>
-  page.evaluate(() => {
-    const a = document.querySelector('audio')!;
-    return {
-      t: a.currentTime,
-      duration: a.duration,
-      paused: a.paused,
-      ended: a.ended,
-      error: a.error?.code ?? null,
-      src: a.currentSrc,
-    };
-  });
+test('a track downloaded in Skupienie plays offline under /fala/ after a reload, looping at the end', async ({ page, context }) => {
+  const bytes = readFileSync(path.join(E2E_MEDIA_DIR, TRACKS.morning.file));
+  const url = mediaPath(TRACKS.morning.file);
+  expect(bytes.length).toBeGreaterThan(3 * CHUNK);
 
-test('downloaded file plays offline after a reload, including a seek to the end', async ({ page, context }) => {
-  const sidecar = JSON.parse(readFileSync(path.join(E2E_MEDIA_DIR, 'e2e-tone.json'), 'utf8'));
-  const fileBytes = readFileSync(path.join(E2E_MEDIA_DIR, FIXTURE.file));
-  const url = `/media/${FIXTURE.file}`;
-  expect(fileBytes.length).toBeGreaterThan(3 * CHUNK);
-
-  await page.goto('/');
-  await page.waitForFunction(() => navigator.serviceWorker?.controller != null, null, { timeout: 30_000 });
-
-  await page.getByRole('link', { name: 'Pobrane' }).click();
-  const card = page.getByTestId('track-card').filter({ hasText: FIXTURE.title });
-  await card.getByRole('button', { name: 'Pobierz' }).click();
-  await expect(card.getByTestId('offline-badge')).toHaveText(/Dostępne offline/, { timeout: 60_000 });
-
-  await card.getByRole('button', { name: 'Sprawdź plik' }).click();
-  await expect(card.getByTestId('verify-ok')).toBeVisible({ timeout: 30_000 });
+  await openApp(page, '#/skupienie');
+  await expect(page.locator('.track-title')).toHaveText(TRACKS.morning.title);
+  await page.getByTestId('download').click();
+  await expect(page.getByTestId('availability')).toHaveText(/Dostępne offline/, { timeout: 60_000 });
 
   await context.setOffline(true);
   await page.reload();
-  await expect(page.getByRole('link', { name: 'Sesja' })).toBeVisible();
+  await expect(page.locator('.topbar-title')).toHaveText('Skupienie');
 
-  // Proves the page really has no network: the catalogue is not handled by the SW.
-  const catalogueReachable = await page.evaluate(() => fetch('/media/index.json').then(() => true, () => false));
-  expect(catalogueReachable).toBe(false);
+  // The page really has no network: the catalogue is not served by the service worker.
+  const indexReachable = await page.evaluate((u) => fetch(u).then(() => true, () => false), `${BASE}media/index.json`);
+  expect(indexReachable).toBe(false);
 
   for (const [a, b] of [
     [0, 1],
     [CHUNK - 50, CHUNK + 49],
-    [fileBytes.length - 100, fileBytes.length - 1],
+    [bytes.length - 100, bytes.length - 1],
   ]) {
-    const r = await page.evaluate(
-      async ([u, from, to]) => {
-        const res = await fetch(u as string, { headers: { Range: `bytes=${from}-${to}` } });
-        return {
-          status: res.status,
-          range: res.headers.get('content-range'),
-          length: res.headers.get('content-length'),
-          bytes: Array.from(new Uint8Array(await res.arrayBuffer())),
-        };
-      },
-      [url, a, b] as const,
-    );
+    const r = await rangeFetch(page, url, a, b);
     expect(r.status).toBe(206);
-    expect(r.range).toBe(`bytes ${a}-${b}/${fileBytes.length}`);
+    expect(r.range).toBe(`bytes ${a}-${b}/${bytes.length}`);
     expect(r.length).toBe(String(b - a + 1));
-    expect(Buffer.from(r.bytes)).toEqual(fileBytes.subarray(a, b + 1));
+    expect(Buffer.from(r.bytes)).toEqual(bytes.subarray(a, b + 1));
   }
 
-  await page.getByRole('link', { name: 'Sesja' }).click();
+  // Offline only the stored track is known, so there is no track choice.
+  await expect(page.locator('.track-title')).toHaveText(TRACKS.morning.title);
+  await expect(page.getByRole('group', { name: 'Utwór' })).toHaveCount(0);
   await expect(page.getByTestId('availability')).toHaveText(/Dostępne offline/);
+
   await page.getByTestId('toggle').click();
-  await expect.poll(async () => (await audioState(page)).t, { timeout: 15_000 }).toBeGreaterThan(1);
+  await expectPlaying(page);
+  const s = await audioState(page);
+  expect(s.src).toContain(url);
+  expect(s.loop).toBe(true);
+
+  // Over the end of the file: the element loops instead of ending.
+  await page.evaluate((d) => (document.querySelector('audio')!.currentTime = d - 1.5), s.duration);
+  await expect.poll(async () => (await audioState(page)).t, { timeout: 15_000 }).toBeLessThan(10);
+  const looped = await audioState(page);
+  expect(looped).toMatchObject({ paused: false, ended: false, error: null });
   await expect(page.getByTestId('toggle')).toHaveAttribute('aria-label', 'Pauza');
 
-  const { duration } = await audioState(page);
-  expect(duration).toBeCloseTo(sidecar.duration_s, 0);
-
-  await page.getByLabel('Pozycja odtwarzania').fill(String(Math.floor(duration - 3)));
-  await expect.poll(async () => (await audioState(page)).t, { timeout: 5_000 }).toBeGreaterThan(duration - 4);
-  await expect(page.getByTestId('status')).toHaveText('Plik odtworzony do końca', { timeout: 15_000 });
-  const end = await audioState(page);
-  expect(end.ended).toBe(true);
-  expect(end.error).toBeNull();
-  expect(end.src).toContain(url);
-  await expect(page.getByTestId('toggle')).toHaveAttribute('aria-label', 'Odtwórz');
-
   // After removal nothing can serve the file offline any more.
-  await page.getByRole('link', { name: 'Pobrane' }).click();
+  await page.getByTestId('toggle').click();
+  await goHash(page, '#/pobrane');
+  const card = page.getByTestId('track-card').filter({ hasText: TRACKS.morning.title });
   await card.getByRole('button', { name: 'Usuń' }).click();
   await expect(page.getByTestId('track-card')).toHaveCount(0);
   const afterRemoval = await page.evaluate(
@@ -95,40 +68,96 @@ test('downloaded file plays offline after a reload, including a seek to the end'
   expect(afterRemoval).toBe('network-error');
 });
 
-test('a file opened from the network keeps playing after it is downloaded (no reload)', async ({ page }) => {
-  await page.goto('/');
-  await page.waitForFunction(() => navigator.serviceWorker?.controller != null, null, { timeout: 30_000 });
-  // The element has already read metadata through the SW's network path.
-  await expect.poll(async () => (await audioState(page)).duration, { timeout: 15_000 }).toBeGreaterThan(0);
+test('a track playing from the network keeps playing while and after it is downloaded (no reload)', async ({ page }) => {
+  await openApp(page);
+  await modeCard(page, 'Skupienie').click();
+  await expectPlaying(page);
 
-  await page.getByRole('link', { name: 'Pobrane' }).click();
-  const card = page.getByTestId('track-card').filter({ hasText: FIXTURE.title });
-  await card.getByRole('button', { name: 'Pobierz' }).click();
-  await expect(card.getByTestId('offline-badge')).toHaveText(/Dostępne offline/, { timeout: 60_000 });
+  await page.getByTestId('download').click();
+  await expect(page.getByTestId('availability')).toHaveText(/Dostępne offline/, { timeout: 60_000 });
+  await expectPlaying(page);
 
-  await page.getByRole('link', { name: 'Sesja' }).click();
-  await page.getByTestId('toggle').click();
-  await expect.poll(async () => (await audioState(page)).t, { timeout: 15_000 }).toBeGreaterThan(1);
-  expect((await audioState(page)).error).toBeNull();
-  await page.getByLabel('Pozycja odtwarzania').fill('300');
+  // New ranges now come from the stored copy; the same element must keep reading.
+  await page.evaluate(() => (document.querySelector('audio')!.currentTime = 300));
   await expect.poll(async () => (await audioState(page)).t, { timeout: 15_000 }).toBeGreaterThan(301);
   expect((await audioState(page)).error).toBeNull();
 
-  await page.getByRole('link', { name: 'Pobrane' }).click();
+  await page.getByTestId('toggle').click();
+  await goHash(page, '#/pobrane');
+  const card = page.getByTestId('track-card').filter({ hasText: TRACKS.morning.title });
   await card.getByRole('button', { name: 'Usuń' }).click();
   await expect(card.getByTestId('offline-badge')).toHaveText(/Niepobrane/);
 });
 
-test('the app shell is installable: manifest, icons and iOS meta tags', async ({ page, request }) => {
-  await page.goto('/');
+test('Pobrane → Odtwórz: a file without a mode downloads, verifies and plays to its end offline', async ({ page, context }) => {
+  await openApp(page);
+  await page.getByRole('link', { name: 'Pobrane' }).click();
+  const card = page.getByTestId('track-card').filter({ hasText: TONE.title });
+  // Mode tracks are played from their screens, not from here.
+  await expect(
+    page.getByTestId('track-card').filter({ hasText: TRACKS.morning.title }).getByRole('button', { name: 'Odtwórz' }),
+  ).toHaveCount(0);
+
+  await card.getByRole('button', { name: 'Pobierz' }).click();
+  await expect(card.getByTestId('offline-badge')).toHaveText(/Dostępne offline/, { timeout: 30_000 });
+  await card.getByRole('button', { name: 'Sprawdź plik' }).click();
+  await expect(card.getByTestId('verify-ok')).toBeVisible({ timeout: 30_000 });
+
+  await context.setOffline(true);
+  await page.reload();
+  await expect(card.getByTestId('offline-badge')).toHaveText(/Dostępne offline/);
+  await card.getByRole('button', { name: 'Odtwórz' }).click();
+  await expect(page).toHaveURL(new RegExp(`${BASE}#/odtwarzacz$`));
+  await expect(page.locator('.topbar-title')).toHaveText('Odtwarzacz testowy');
+  await expect(page.getByTestId('availability')).toHaveText(/Dostępne offline/);
+
+  await page.getByTestId('toggle').click();
+  await expectPlaying(page);
+  const { duration, loop } = await audioState(page);
+  expect(duration).toBeCloseTo(TONE.durationS, 0);
+  expect(loop).toBe(false);
+
+  await page.getByLabel('Pozycja odtwarzania').fill(String(Math.floor(duration - 3)));
+  await expect(page.getByTestId('status')).toHaveText('Plik odtworzony do końca', { timeout: 15_000 });
+  expect(await audioState(page)).toMatchObject({ ended: true, error: null });
+  await expect(page.getByTestId('toggle')).toHaveAttribute('aria-label', 'Odtwórz');
+
+  await page.getByRole('link', { name: 'Wróć' }).click();
+  await expect(page).toHaveURL(new RegExp(`${BASE}#/pobrane$`));
+  await card.getByRole('button', { name: 'Usuń' }).click();
+  await expect(page.getByTestId('track-card')).toHaveCount(0);
+});
+
+test('the app shell is installable under /fala/: manifest, icons, iOS meta tags, service worker scope', async ({ page, request }) => {
+  await openApp(page);
   await expect(page.locator('meta[name="apple-mobile-web-app-capable"]')).toHaveAttribute('content', 'yes');
-  await expect(page.locator('link[rel="apple-touch-icon"]')).toHaveAttribute('href', '/icons/apple-touch-icon-180.png');
+  await expect(page.locator('link[rel="apple-touch-icon"]')).toHaveAttribute('href', `${BASE}icons/apple-touch-icon-180.png`);
+  const scope = await page.evaluate(async () => (await navigator.serviceWorker.getRegistration())?.scope);
+  expect(new URL(scope!).pathname).toBe(BASE);
+
   const manifestHref = await page.locator('link[rel="manifest"]').getAttribute('href');
+  expect(manifestHref).toBe(`${BASE}manifest.webmanifest`);
   const manifest = await (await request.get(manifestHref!)).json();
-  expect(manifest).toMatchObject({ display: 'standalone', start_url: '/', lang: 'pl' });
-  for (const icon of [...manifest.icons, { src: '/icons/apple-touch-icon-180.png' }]) {
-    const res = await request.get(icon.src);
-    expect(res.status(), icon.src).toBe(200);
+  expect(manifest).toMatchObject({ display: 'standalone', start_url: BASE, scope: BASE, id: BASE, lang: 'pl' });
+  const manifestUrl = new URL(manifestHref!, 'http://x');
+  for (const src of [...manifest.icons.map((i: { src: string }) => new URL(i.src, manifestUrl).pathname), `${BASE}icons/apple-touch-icon-180.png`]) {
+    expect(src.startsWith(BASE), src).toBe(true);
+    const res = await request.get(src);
+    expect(res.status(), src).toBe(200);
     expect(res.headers()['content-type']).toContain('image/png');
   }
+  // Nothing in the shell may point outside the base path (it would 404 on GitHub Pages).
+  const outside = await page.evaluate((base) => {
+    const refs = [...document.querySelectorAll('link[href], script[src]')].map(
+      (e) => new URL((e as HTMLLinkElement).href || (e as HTMLScriptElement).src).pathname,
+    );
+    return refs.filter((p) => !p.startsWith(base));
+  }, BASE);
+  expect(outside).toEqual([]);
+});
+
+test('an unknown path under /fala/ (GitHub Pages 404 page) returns to the app and keeps the screen', async ({ page }) => {
+  await page.goto(`${BASE}404.html#/sen`);
+  await expect(page).toHaveURL(new RegExp(`${BASE}#/sen$`));
+  await expect(page.locator('.topbar-title')).toHaveText('Sen');
 });

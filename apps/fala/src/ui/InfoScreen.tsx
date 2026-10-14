@@ -26,7 +26,8 @@ export function InfoScreen() {
         </p>
         <p>
           <strong>Sen</strong> — spokojna muzyka przed zaśnięciem, która zatrzymuje się po 30–60 minutach. Bez całonocnego szumu: w badaniu
-          różowy szum puszczany przez całą noc skracał fazę REM.
+          różowy szum puszczany przez całą noc skracał fazę REM. Na razie muzyka zatrzymuje się po czasie od razu; płynne wyciszanie
+          dojdzie z kolejnymi nagraniami.
         </p>
         <p>Po pobraniu utwór działa bez internetu. Odtwarzanie przy zablokowanym ekranie iPhone’a jest jeszcze w testach.</p>
       </div>

@@ -113,15 +113,17 @@ function BreathCircle({ pacerSeconds, startRate, running }: { pacerSeconds: () =
       if (t === null) {
         setPhase(null);
         if (circle.current) circle.current.style.transform = '';
-        return;
+      } else {
+        const p = phaseAt({ startRate }, t);
+        setPhase(p.phase);
+        setRate(Math.round(p.rate * 10) / 10);
+        if (circle.current) {
+          // Reduced motion: no growing and shrinking, only the words change.
+          circle.current.style.transform = reduce ? '' : `scale(${0.62 + 0.38 * breathScale(p)})`;
+        }
       }
-      const p = phaseAt({ startRate }, t);
-      setPhase(p.phase);
-      setRate(Math.round(p.rate * 10) / 10);
-      if (circle.current) {
-        // Reduced motion: no growing and shrinking, only the words change.
-        circle.current.style.transform = reduce ? '' : `scale(${0.62 + 0.38 * breathScale(p)})`;
-      }
+      // Keep polling while running even before the timer starts: this effect runs before
+      // the parent's effect that starts the session clock, and nothing re-triggers it after.
       if (running) raf = requestAnimationFrame(draw);
     };
     draw();
@@ -217,9 +219,7 @@ export function SleepScreen({ view, now }: { view: SessionView; now: number }) {
       <Choice legend="Minutnik" name="sleep-minutes" options={SLEEP_MINUTES} value={view.minutes} onChange={view.onMinutes} format={minutesLabel} />
       <PlayToggle playing={view.playing} onClick={view.onToggle} />
       <div className="track compact">
-        <p className="muted">
-          {view.file?.title ?? '—'} · po czasie dźwięk się zatrzyma (płynne wyciszanie dojdzie w kolejnych nagraniach)
-        </p>
+        <p className="muted">{view.file?.title ?? '—'} · po czasie dźwięk się zatrzyma</p>
         <Availability file={view.file} op={view.op} online={view.online} onDownload={view.onDownload} />
       </div>
       <Status text={view.statusText} />
